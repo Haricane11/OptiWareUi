@@ -20,7 +20,7 @@ const ZONE_PRESETS = {
   'Packing': { color: '#94a3b8', shelfType: 'BULK_FLOOR_SPACE', label: 'Packing & Shipping' },
 };
 
-const DraggableZone = ({ zone, PPM, handleStop, startResize, removeZone, children }) => {
+const DraggableZone = ({ zone, PPM, handleStop, startResize, removeZone, children, isDragging, setIsDragging, openZoneEditor, onZoneMouseMove, onZoneMouseLeave }) => {
   const nodeRef = useRef(null);
   return (
     <Draggable
@@ -29,10 +29,14 @@ const DraggableZone = ({ zone, PPM, handleStop, startResize, removeZone, childre
       bounds="parent"
       grid={[0.5 * PPM, 0.5 * PPM]}
       position={{ x: (zone.x || 0) * PPM, y: (zone.y || 0) * PPM }}
+      onStart={() => setIsDragging(true)}
       onStop={(e, data) => handleStop(e, data, zone, 'zone')}
     >
       <div
         ref={nodeRef}
+        onMouseMove={(e) => onZoneMouseMove && onZoneMouseMove(e, zone)}
+        onMouseLeave={() => onZoneMouseLeave && onZoneMouseLeave()}
+        onClick={() => !isDragging && openZoneEditor(zone)}
         className="absolute border-2 flex items-start justify-start p-2 cursor-move hover:border-opacity-100 group"
         style={{
           width: `${(zone.width || 5) * PPM}px`,
@@ -140,10 +144,14 @@ function WarehouseContent() {
   const [selectedShelf, setSelectedShelf] = useState(null);
   const { state, updateShelfPosition, updateStairsPosition, updateZonePosition, updateZoneDimensions, findNextAvailablePosition, setState, removeZone } = useWms();
   const [selectedStairs, setSelectedStairs] = useState(false);
-  const [currentFloorId, setCurrentFloorId] = useState(1);
+  const [currentFloorId, setCurrentFloorId] = useState(() => {
+    const first = state.floors.find(f => f.level_number === 0) || state.floors[0];
+    return first ? first.id : 1;
+  });
   const [isDragging, setIsDragging] = useState(false);
   const [isZoneModalOpen, setIsZoneModalOpen] = useState(false);
   const [newZoneData, setNewZoneData] = useState({ name: '', type: 'General' });
+  const [zoneEditor, setZoneEditor] = useState(null);
   const resizingRef = useRef(null);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -156,6 +164,16 @@ function WarehouseContent() {
     }
     return (h % 50) + 1;
   };
+  const canvasRef = useRef(null);
+  const [zoneHover, setZoneHover] = useState({ show: false, x: 0, y: 0, name: '', label: '' });
+  const handleZoneMouseMove = (e, zone) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const x = rect ? e.clientX - rect.left : 0;
+    const y = rect ? e.clientY - rect.top : 0;
+    const presetLabel = ZONE_PRESETS[zone.zone_type]?.label || zone.zone_type || '';
+    setZoneHover({ show: true, x, y, name: zone.zone_name || '', label: presetLabel });
+  };
+  const clearZoneHover = () => setZoneHover(prev => ({ ...prev, show: false }));
 
   // If not configured or explicitly editing, show Wizard
   if (!state.isConfigured || editMode) {
@@ -243,6 +261,30 @@ function WarehouseContent() {
     resizingRef.current = null;
     document.removeEventListener('mousemove', handleResizeMove);
     document.removeEventListener('mouseup', stopResize);
+  };
+
+  const openZoneEditor = (zone) => {
+    setZoneEditor({
+      id: zone.id,
+      name: zone.zone_name || '',
+      type: zone.zone_type || 'General',
+      color: zone.color || '#e5e7eb',
+      width: zone.width || 10,
+      depth: zone.depth || 8
+    });
+  };
+
+  const applyZoneEdit = () => {
+    if (!zoneEditor) return;
+    const { id, width, depth, name, type, color } = zoneEditor;
+    updateZoneDimensions(id, parseFloat(width) || 1, parseFloat(depth) || 1);
+    setState(prev => ({
+      ...prev,
+      zones: prev.zones.map(z => 
+        z.id === id ? { ...z, zone_name: name, zone_type: type, color } : z
+      )
+    }));
+    setZoneEditor(null);
   };
 
   const handleStop = (e, data, item, type) => {
@@ -466,6 +508,7 @@ function WarehouseContent() {
              {viewMode === '2d' ? (
                <div 
                  className="relative bg-white shadow-sm mx-auto mt-10 border border-gray-300"
+                 ref={canvasRef}
                  style={{
                     width: `${state.warehouseDims.widthM * PPM}px`,
                     height: `${state.warehouseDims.depthM * PPM}px`,
@@ -487,6 +530,11 @@ function WarehouseContent() {
                      handleStop={handleStop}
                      startResize={startResize}
                      removeZone={removeZone}
+                     isDragging={isDragging}
+                     setIsDragging={setIsDragging}
+                     openZoneEditor={openZoneEditor}
+                     onZoneMouseMove={handleZoneMouseMove}
+                     onZoneMouseLeave={clearZoneHover}
                    >
                      {filteredShelves
                        .filter(s => s.zone_id === zone.id)
@@ -509,6 +557,16 @@ function WarehouseContent() {
                      }
                    </DraggableZone>
                  ))}
+
+                 {zoneHover.show && (
+                   <div
+                     className="absolute z-50 bg-white px-2 py-1 rounded shadow border text-xs text-gray-700 pointer-events-none"
+                     style={{ left: zoneHover.x + 12, top: zoneHover.y + 12 }}
+                   >
+                     <div className="font-semibold">{zoneHover.name}</div>
+                     {zoneHover.label && <div className="opacity-70">{zoneHover.label}</div>}
+                   </div>
+                 )}
 
                  {/* Shelves loop removed (merged into zones) */}
 
@@ -718,6 +776,73 @@ function WarehouseContent() {
                     </div>
                 </div>
             </div>
+        )}
+        {/* Zone Edit Modal */}
+        {zoneEditor && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold text-gray-800">Edit Zone</h3>
+                <button onClick={() => setZoneEditor(null)} className="text-gray-500 hover:text-gray-700">Close</button>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                  <input 
+                    type="text" 
+                    value={zoneEditor.name}
+                    onChange={e => setZoneEditor({ ...zoneEditor, name: e.target.value })}
+                    className="w-full p-2 border border-gray-300 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Width (X, meters)</label>
+                  <input 
+                    type="number" step="0.1" 
+                    value={zoneEditor.width}
+                    onChange={e => setZoneEditor({ ...zoneEditor, width: e.target.value })}
+                    className="w-full p-2 border border-gray-300 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Depth (Y, meters)</label>
+                  <input 
+                    type="number" step="0.1" 
+                    value={zoneEditor.depth}
+                    onChange={e => setZoneEditor({ ...zoneEditor, depth: e.target.value })}
+                    className="w-full p-2 border border-gray-300 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                  <select 
+                    value={zoneEditor.type}
+                    onChange={e => setZoneEditor({ ...zoneEditor, type: e.target.value })}
+                    className="w-full p-2 border border-gray-300 rounded-lg"
+                  >
+                    <option>General</option>
+                    <option>Cold Storage</option>
+                    <option>Bulk Storage</option>
+                    <option>Hazardous</option>
+                    <option>Sorting</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
+                  <input 
+                    type="color" 
+                    value={zoneEditor.color}
+                    onChange={e => setZoneEditor({ ...zoneEditor, color: e.target.value })}
+                    className="w-full h-10 p-1 border border-gray-300 rounded-lg"
+                  />
+                </div>
+              </div>
+              <div className="mt-6 flex justify-end gap-2">
+                <button onClick={() => setZoneEditor(null)} className="px-4 py-2 bg-white border border-gray-300 rounded-lg">Cancel</button>
+                <button onClick={applyZoneEdit} className="px-4 py-2 bg-indigo-600 text-white rounded-lg">Save</button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

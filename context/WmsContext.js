@@ -19,8 +19,8 @@ const generateMockData = () => {
 
   // 2. Create Floors
   const floors = [
-    { id: 1, warehouse_id: 1, name: 'Floor 1', level_number: 1, stairs_location: { x: 0, y: 0 } },
-    { id: 2, warehouse_id: 1, name: 'Floor 2', level_number: 2, stairs_location: { x: 0, y: 0 } }
+    { id: 1, warehouse_id: 1, name: 'Floor 0', level_number: 0, stairs_location: { x: 0, y: 0 } },
+    { id: 2, warehouse_id: 1, name: 'Floor 1', level_number: 1, stairs_location: { x: 0, y: 0 } }
   ];
 
   // 3. Create Zones for the Warehouse (linked to Floors)
@@ -42,7 +42,8 @@ const generateMockData = () => {
     shelves,
     warehouseDims: {
       widthM: 30,
-      depthM: 30
+      depthM: 30,
+      heightM: 10
     },
     floorHeight: 5, // Default floor height
   };
@@ -57,8 +58,9 @@ export function WmsProvider({ children }) {
     let x = itemType === 'shelf' ? 2 : 0;
     let y = itemType === 'shelf' ? 2 : 0;
     const gap = 0.5;
-    const warehouseWidth = state.warehouseDims.widthM;
-    const warehouseDepth = state.warehouseDims.depthM;
+    const currentFloorObj = state.floors.find(f => f.id === floorId);
+    const floorWidth = (currentFloorObj && currentFloorObj.width) ? currentFloorObj.width : state.warehouseDims.widthM;
+    const floorDepth = state.warehouseDims.depthM;
 
     // Determine what to check against based on itemType
     let existingItems = [];
@@ -84,7 +86,7 @@ export function WmsProvider({ children }) {
     // Max attempts to prevent infinite loop
     let attempts = 0;
     while (attempts < 1000) {
-      const withinBounds = (x + width <= warehouseWidth) && (y + depth <= warehouseDepth);
+      const withinBounds = (x + width <= floorWidth) && (y + depth <= floorDepth);
       if (withinBounds) {
         const collision = existingItems.some(item => {
           const itemX = item.location_x || item.x || 0;
@@ -105,10 +107,10 @@ export function WmsProvider({ children }) {
 
       // Advance scan position
       x += width + gap;
-      if (x + width > warehouseWidth) {
+      if (x + width > floorWidth) {
         x = 0;
         y += depth + gap;
-        if (y + depth > warehouseDepth) {
+        if (y + depth > floorDepth) {
           // No space left in current layout scan
           break;
         }

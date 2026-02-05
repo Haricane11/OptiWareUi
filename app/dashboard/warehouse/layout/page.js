@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useWms } from '../../../../context/WmsContext';
 import { Plus, Save, Trash2, ChevronRight, ChevronDown, Warehouse, Map, Box, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
@@ -13,7 +13,7 @@ export default function LayoutEntryPage() {
   const [showForm, setShowForm] = useState(false);
   
   // Bulk Generator State
-  const initialBulkState = {
+  const initialBulkState = useMemo(() => ({
     start_aisle: 1,
     num_aisles: 1,
     bays_per_aisle: 1,
@@ -22,8 +22,8 @@ export default function LayoutEntryPage() {
     bay_depth: 1.2,
     level_height: 0.8,
     aisle_gap: 3.0,
-    shelf_type: 'Standard Rack' // Default
-  };
+    shelf_type: 'Standard Rack'
+  }), []);
 
   const [bulkData, setBulkData] = useState(initialBulkState);
 
@@ -64,47 +64,47 @@ export default function LayoutEntryPage() {
         // Parse level number from 'level_code' or just count max?
         const maxLevel = Math.max(...zoneShelves.map(s => parseInt(s.level_code.replace('L','')) || 1));
         
-        // Aisle Gap? Hard to infer without geometric analysis of Rows Y-coords.
-        // If >1 aisle, calc diff between aisle Ys.
+        // Infer Aisle Gap using two-row layout for the same aisle:
+        // gap = (bottomRowY - topRowY) - bay_depth
         let inferredGap = initialBulkState.aisle_gap;
-        if (numAisles > 1) {
-            // Group by aisle -> get first shelf Y of aisle 1 and aisle 2?
-            // Aisle Y is usually same for all bays in aisle.
-            const aisleYs = {};
-            zoneShelves.forEach(s => {
-                if (!aisleYs[s.aisle_num]) aisleYs[s.aisle_num] = s.location_y;
-            });
-            const sortedAisles = Object.keys(aisleYs).sort((a,b) => a-b);
-            if (sortedAisles.length >= 2) {
-                const y1 = aisleYs[sortedAisles[0]];
-                const y2 = aisleYs[sortedAisles[1]];
-                // Dist between rows = bay_depth + gap
-                // gap = (y2 - y1) - bay_depth
-                // Assuming y2 > y1
-                inferredGap = (Math.abs(y2 - y1) - first.depth).toFixed(1); 
-                // Careful with floats, fixed string -> number
-                inferredGap = parseFloat(inferredGap);
+        const aisleRows = {};
+        zoneShelves.forEach(s => {
+            const key = s.aisle_num;
+            const isTop = s.facing ? (s.facing === 'positive') : (s.bay_num % 2 === 1);
+            if (!aisleRows[key]) aisleRows[key] = { top: undefined, bottom: undefined };
+            if (isTop) {
+                aisleRows[key].top = (aisleRows[key].top === undefined) ? s.location_y : Math.min(aisleRows[key].top, s.location_y);
+            } else {
+                aisleRows[key].bottom = (aisleRows[key].bottom === undefined) ? s.location_y : Math.min(aisleRows[key].bottom, s.location_y);
             }
+        });
+        const candidateAisle = Math.min(...Object.keys(aisleRows).map(n => parseInt(n, 10)));
+        const rows = aisleRows[candidateAisle];
+        if (rows && rows.top !== undefined && rows.bottom !== undefined) {
+            const rawGap = (rows.bottom - rows.top) - first.depth;
+            inferredGap = parseFloat(rawGap.toFixed(1));
         }
 
-        setBulkData({
-            start_aisle: minAisle,
-            num_aisles: numAisles,
-            bays_per_aisle: maxBay, // Approximation if start_bay isn't 1. Assuming 1-based index for now.
-            levels_per_bay: maxLevel,
-            bay_width: first.width,
-            bay_depth: first.depth,
-            level_height: first.height,
-            aisle_gap: inferredGap || 3.0,
-            shelf_type: first.type
-        });
-        setGapEdited(false); // Reset tracking so subsequent type changes will trigger defaults
+        setTimeout(() => {
+          setBulkData({
+              start_aisle: minAisle,
+              num_aisles: numAisles,
+              bays_per_aisle: maxBay, // Approximation if start_bay isn't 1. Assuming 1-based index for now.
+              levels_per_bay: maxLevel,
+              bay_width: first.width,
+              bay_depth: first.depth,
+              level_height: first.height,
+              aisle_gap: inferredGap || 3.0,
+              shelf_type: first.type
+          });
+        }, 0);
+        setTimeout(() => setGapEdited(false), 0);
     } else {
         // Reset to defaults if empty zone (so user can start fresh)
-        setBulkData(initialBulkState);
-        setGapEdited(false);
+        setTimeout(() => setBulkData(initialBulkState), 0);
+        setTimeout(() => setGapEdited(false), 0);
     }
-  }, [selectedZone, state.shelves]);
+  }, [selectedZone, state.shelves, initialBulkState]);
 
   const filteredFloors = state.floors.filter(f => f.warehouse_id === selectedWarehouse);
   const filteredZones = state.zones.filter(z => z.floor_id === selectedFloor);
@@ -162,8 +162,8 @@ export default function LayoutEntryPage() {
     const zoneTop = (zoneObj?.y || 0);
     const zoneRight = zoneLeft + (zoneObj?.width || state.warehouseDims.widthM);
     const zoneBottom = zoneTop + (zoneObj?.depth || state.warehouseDims.depthM);
-    const start_x = zoneLeft + 2.0;
-    const start_y = zoneTop + 2.0;
+    const start_x = zoneLeft;
+    const start_y = zoneTop;
 
     const overlapsAny = (x, y, w, d, z, h, items) => {
       return items.some(it => {
@@ -202,28 +202,34 @@ export default function LayoutEntryPage() {
     }
 
     // Generate Logic
-    // Aisles stack along Y axis (rows), Bays along X axis
-    
+    // Two-row aisle generation:
+    // - For each aisle (A#), create two facing rows separated by aisle_gap
+    // - Apply a back gap of 0.2m between consecutive aisle pairs
+    // - Odd bay numbers on the top/left row, even bay numbers on the bottom/right row
+    const BACK_GAP = 0.2;
+    let yCursor = start_y;
     for (let a = 0; a < num_aisles; a++) {
       const aisleNum = start_aisle + a;
-      const aisleY = start_y + a * (bay_depth + aisle_gap);
+      const topRowY = yCursor;
+      const bottomRowY = topRowY + bay_depth + aisle_gap;
 
-      for (let b = 0; b < bays_per_aisle; b++) {
-        const bayNum = b + 1;
+      const oddCount = Math.ceil(bays_per_aisle / 2);
+      const evenCount = Math.floor(bays_per_aisle / 2);
+
+      // Top/Left Row: odd bay numbers
+      for (let b = 0; b < oddCount; b++) {
+        const bayNum = 2 * b + 1;
         const bayX = start_x + b * bay_width;
 
         for (let l = 0; l < levels_per_bay; l++) {
           const levelNum = l + 1;
           const levelZ = l * level_height;
 
-          // Ensure shelf fits within zone and doesn't collide
-          const fitsInZone = (bayX + bay_width <= zoneRight) && (aisleY + bay_depth <= zoneBottom);
+          const fitsInZone = (bayX + bay_width <= zoneRight) && (topRowY + bay_depth <= zoneBottom);
           if (!fitsInZone) continue;
-          
-          // Check collision with obstacles (existing shelves + stairs)
-          const collidesExisting = overlapsAny(bayX, aisleY, bay_width, bay_depth, levelZ, level_height, obstacles);
-          const collidesNew = overlapsAny(bayX, aisleY, bay_width, bay_depth, levelZ, level_height, newShelves);
-          
+
+          const collidesExisting = overlapsAny(bayX, topRowY, bay_width, bay_depth, levelZ, level_height, obstacles);
+          const collidesNew = overlapsAny(bayX, topRowY, bay_width, bay_depth, levelZ, level_height, newShelves);
           if (collidesExisting || collidesNew) continue;
 
           const shelf = {
@@ -233,9 +239,9 @@ export default function LayoutEntryPage() {
             level_code: `L${levelNum}`,
             aisle_num: aisleNum,
             bay_num: bayNum,
-            bin_num: 1, 
+            bin_num: 1,
             location_x: bayX,
-            location_y: aisleY,
+            location_y: topRowY,
             location_z: levelZ,
             width: bay_width,
             height: level_height,
@@ -243,8 +249,7 @@ export default function LayoutEntryPage() {
             max_weight: 500,
             type: shelf_type,
             created_at: new Date().toISOString(),
-            
-            // UI Helpers
+            facing: 'positive',
             name: `A${aisleNum}-B${bayNum}-L${levelNum}`,
             levels: 1,
             occupancy: 0,
@@ -256,6 +261,55 @@ export default function LayoutEntryPage() {
           newShelves.push(shelf);
         }
       }
+
+      // Bottom/Right Row: even bay numbers
+      for (let b = 0; b < evenCount; b++) {
+        const bayNum = 2 * (b + 1);
+        const bayX = start_x + b * bay_width;
+
+        for (let l = 0; l < levels_per_bay; l++) {
+          const levelNum = l + 1;
+          const levelZ = l * level_height;
+
+          const fitsInZone = (bayX + bay_width <= zoneRight) && (bottomRowY + bay_depth <= zoneBottom);
+          if (!fitsInZone) continue;
+
+          const collidesExisting = overlapsAny(bayX, bottomRowY, bay_width, bay_depth, levelZ, level_height, obstacles);
+          const collidesNew = overlapsAny(bayX, bottomRowY, bay_width, bay_depth, levelZ, level_height, newShelves);
+          if (collidesExisting || collidesNew) continue;
+
+          const shelf = {
+            id: shelfIdCounter++,
+            zone_id: selectedZone,
+            shelf_code: `A${aisleNum}-B${bayNum}-L${levelNum}`,
+            level_code: `L${levelNum}`,
+            aisle_num: aisleNum,
+            bay_num: bayNum,
+            bin_num: 1,
+            location_x: bayX,
+            location_y: bottomRowY,
+            location_z: levelZ,
+            width: bay_width,
+            height: level_height,
+            depth: bay_depth,
+            max_weight: 500,
+            type: shelf_type,
+            created_at: new Date().toISOString(),
+            facing: 'negative',
+            name: `A${aisleNum}-B${bayNum}-L${levelNum}`,
+            levels: 1,
+            occupancy: 0,
+            products: [],
+            currentWeight: '0kg',
+            depthM: bay_depth,
+            maxWeight: '500kg'
+          };
+          newShelves.push(shelf);
+        }
+      }
+
+      // Advance cursor: add back gap between aisle pairs
+      yCursor = bottomRowY + bay_depth + BACK_GAP;
     }
 
     setState(prev => {
@@ -438,11 +492,18 @@ export default function LayoutEntryPage() {
                         
                         // Calculate Totals
                         // Note: actual generation code uses start offsets (2m padding).
-                        const paddingX = 2.0;
-                        const paddingY = 2.0;
+                        const paddingX = 0.0;
+                        const paddingY = 0.0;
                         
-                        const totalW = bays_per_aisle * bay_width;
-                        const totalD = (num_aisles * bay_depth) + (Math.max(0, num_aisles - 1) * aisle_gap);
+                        // Width footprint is per row: split bays across two facing rows
+                        const baysPerRow = Math.ceil(bays_per_aisle / 2);
+                        const totalW = baysPerRow * bay_width;
+                      // New depth formula:
+                      // Each aisle pair has two rows: bay_depth + aisle_gap + bay_depth
+                      // Between aisle pairs, apply BACK_GAP (0.2m)
+                      const BACK_GAP = 0.2;
+                      const pairDepth = (2 * bay_depth) + aisle_gap;
+                      const totalD = (num_aisles * pairDepth) + (Math.max(0, num_aisles - 1) * BACK_GAP);
                         
                         // Height
                         const actualLevelHeight = level_height;
@@ -464,10 +525,11 @@ export default function LayoutEntryPage() {
                             warnings.push(`Total layout depth (${requiredD.toFixed(1)}m) exceeds Zone depth (${zD}m). Reduce aisles or gap.`);
                         }
 
-                        // Check Height
-                        const whH = state.warehouseDims.heightM || 10; // Default 10 if missing
-                        if (totalH > whH) {
-                            warnings.push(`Total height (${totalH.toFixed(1)}m) exceeds Warehouse height (${whH}m). Reduce levels.`);
+                        // Check Height against current floor height
+                        const floorObj = state.floors.find(f => f.id === selectedFloor);
+                        const floorH = (floorObj && floorObj.heightM) ? floorObj.heightM : (state.warehouseDims.heightM || 10);
+                        if (totalH > floorH) {
+                            warnings.push(`Total height (${totalH.toFixed(1)}m) exceeds Floor height (${floorH}m). Reduce levels.`);
                         }
                     }
 

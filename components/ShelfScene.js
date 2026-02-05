@@ -18,9 +18,10 @@ function Rack({ shelf, highlight }) {
     shelf.location_z + h / 2, 
     shelf.location_y + d / 2
   ];
+  const rotationY = shelf.facing === 'negative' ? Math.PI : 0;
 
   return (
-    <group position={pos}>
+    <group position={pos} rotation={[0, rotationY, 0]}>
       <ShelfFactory 
         type={shelf.type} 
         width={w} 

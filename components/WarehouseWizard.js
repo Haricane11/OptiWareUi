@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useWms } from '../context/WmsContext';
 import { ArrowRight, Check, Warehouse, Layers, Map, Plus, Trash2, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -10,17 +10,75 @@ export default function WarehouseWizard({ onComplete, onClose }) {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState(() => {
-
-
+    const whWidth = state.warehouseDims.widthM || 30;
+    const whDepth = state.warehouseDims.depthM || 30;
+    const whHeight = state.warehouseDims.heightM || 10;
+    const numFloors = 1;
+    const initialFloorWidths = Array.from({ length: numFloors }, () => whWidth);
+    const baseInit = numFloors > 1 ? whHeight / numFloors : whHeight;
+    const defaultHeight = Number.isInteger(baseInit)
+      ? baseInit
+      : (Math.abs(baseInit * 10 - Math.round(baseInit * 10)) < 1e-9 ? Number((Math.round(baseInit * 10) / 10).toFixed(1)) : Math.floor(baseInit));
+    const initialFloorHeights = Array.from({ length: numFloors }, () => defaultHeight);
+    const initialFloorOffsets = Array.from({ length: numFloors }, (_, i) => i * defaultHeight);
     return {
       warehouseName: (state.warehouses?.[0]?.name) || 'Main Distribution Center',
-      widthM: state.warehouseDims.widthM || 30,
-      depthM: state.warehouseDims.depthM || 30,
-      numFloors: state.floors.length || 1,
+      widthM: whWidth,
+      depthM: whDepth,
+      heightM: whHeight,
+      numFloors,
       floorHeight: state.floorHeight || 5,
-      // zones: existingZones // Removed from Wizard
+      floorWidths: initialFloorWidths,
+      floorHeights: initialFloorHeights,
+      floorOffsets: initialFloorOffsets,
     };
   });
+
+  const [errors, setErrors] = useState([]);
+
+  useEffect(() => {
+    const base = formData.numFloors > 1 ? (formData.heightM || 0) / formData.numFloors : (formData.heightM || 0);
+    let defaultHeight = base;
+    if (!Number.isInteger(base)) {
+      const nearTenth = Math.abs(base * 10 - Math.round(base * 10)) < 1e-9;
+      defaultHeight = nearTenth ? Number((Math.round(base * 10) / 10).toFixed(1)) : Math.floor(base);
+    }
+    const nextWidths = Array.from({ length: formData.numFloors }, () => formData.widthM || 0);
+    const nextHeights = Array.from({ length: formData.numFloors }, () => defaultHeight);
+    const nextOffsets = Array.from({ length: formData.numFloors }, (_, i) => i * defaultHeight);
+    setFormData(fd => ({ ...fd, floorWidths: nextWidths, floorHeights: nextHeights, floorOffsets: nextOffsets }));
+  }, [formData.numFloors, formData.heightM, formData.widthM]);
+
+  useEffect(() => {
+    const errs = [];
+    // Per-floor checks
+    for (let i = 0; i < formData.numFloors; i++) {
+      const h = parseFloat(formData.floorHeights[i] ?? 0) || 0;
+      const off = parseFloat(formData.floorOffsets?.[i] ?? 0) || 0;
+      if (h > (formData.heightM || 0)) {
+        errs.push({ scope: 'floor', index: i, msg: `Floor ${i + 1} height (${h}m) exceeds warehouse height (${formData.heightM}m)` });
+      }
+      if (off < 0) {
+        errs.push({ scope: 'floor', index: i, msg: `Floor ${i + 1} elevation (${off}m) must be >= 0` });
+      }
+      if (off + h > (formData.heightM || 0)) {
+        errs.push({ scope: 'floor', index: i, msg: `Floor ${i + 1} top (${(off + h).toFixed(2)}m) exceeds warehouse height (${formData.heightM}m)` });
+      }
+      if (i > 0) {
+        const prevOff = parseFloat(formData.floorOffsets?.[i - 1] ?? 0) || 0;
+        const prevH = parseFloat(formData.floorHeights?.[i - 1] ?? 0) || 0;
+        if (off < prevOff + prevH) {
+          errs.push({ scope: 'floor', index: i, msg: `Floor ${i + 1} elevation (${off}m) overlaps previous floor top (${(prevOff + prevH).toFixed(2)}m)` });
+        }
+      }
+    }
+    // Total height check
+    const totalH = (formData.floorHeights || []).reduce((s, h) => s + (parseFloat(h) || 0), 0);
+    if (totalH > (formData.heightM || 0)) {
+      errs.push({ scope: 'floors', msg: `Total floors height (${totalH}m) exceeds warehouse height (${formData.heightM}m)` });
+    }
+    setErrors(errs);
+  }, [formData.floorHeights, formData.floorOffsets, formData.widthM, formData.heightM, formData.numFloors]);
 
   const handleNext = () => {
     if (step < 3) setStep(step + 1);
@@ -32,7 +90,7 @@ export default function WarehouseWizard({ onComplete, onClose }) {
   const finishSetup = () => {
     // 1. Update Dims
     const updatedState = { ...state };
-    updatedState.warehouseDims = { widthM: formData.widthM, depthM: formData.depthM };
+    updatedState.warehouseDims = { widthM: formData.widthM, depthM: formData.depthM, heightM: formData.heightM };
     updatedState.floorHeight = formData.floorHeight;
     const warehouseId = state.warehouses?.[0]?.id ?? Date.now();
     updatedState.warehouses = [
@@ -47,17 +105,29 @@ export default function WarehouseWizard({ onComplete, onClose }) {
 
     // 2. Generate Floors (Preserve existing floors to keep shelves linked)
     const newFloors = [];
-    for (let i = 1; i <= formData.numFloors; i++) {
+    for (let i = 0; i < formData.numFloors; i++) {
        const existingFloor = state.floors.find(f => f.level_number === i && f.warehouse_id === warehouseId);
+       const widthForFloor = formData.widthM;
+       const fbBase = formData.numFloors > 1 ? (formData.heightM / formData.numFloors) : formData.heightM;
+       let defaultHeight = fbBase;
+       if (!Number.isInteger(fbBase)) {
+         const nearTenth = Math.abs(fbBase * 10 - Math.round(fbBase * 10)) < 1e-9;
+         defaultHeight = nearTenth ? Number((Math.round(fbBase * 10) / 10).toFixed(1)) : Math.floor(fbBase);
+       }
+       const heightForFloor = formData.floorHeights[i] ?? defaultHeight;
+        const offsetForFloor = formData.floorOffsets?.[i] ?? (i * defaultHeight);
        if (existingFloor) {
-         newFloors.push(existingFloor);
+         newFloors.push({ ...existingFloor, width: widthForFloor, heightM: heightForFloor, height_offset: offsetForFloor });
        } else {
          newFloors.push({
-            id: Date.now() + i, // Unique ID for new floor
+            id: Date.now() + i,
             warehouse_id: warehouseId,
             name: `Floor ${i}`,
             level_number: i,
-            stairs_location: { x: 0, y: 0 }
+            stairs_location: { x: 0, y: 0 },
+            width: widthForFloor,
+            heightM: heightForFloor,
+            height_offset: offsetForFloor
          });
        }
     }
@@ -144,6 +214,15 @@ export default function WarehouseWizard({ onComplete, onClose }) {
                       className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
                     />
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Height (meters)</label>
+                    <input 
+                      type="number" 
+                      value={formData.heightM}
+                      onChange={e => setFormData({...formData, heightM: parseFloat(e.target.value)})}
+                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
                </div>
             </div>
           )}
@@ -172,18 +251,65 @@ export default function WarehouseWizard({ onComplete, onClose }) {
                  </select>
                </div>
 
-               {formData.numFloors > 1 && (
-                 <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Floor Height (meters)</label>
-                    <input 
-                      type="number" 
-                      value={formData.floorHeight}
-                      onChange={e => setFormData({...formData, floorHeight: parseFloat(e.target.value)})}
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">This is used for 3D stacking visualization.</p>
-                 </div>
-               )}
+               <div className="space-y-3">
+                 {Array.from({ length: formData.numFloors }, (_, i) => (
+                   <div key={i} className="grid grid-cols-2 gap-4 p-3 border border-gray-200 rounded-lg">
+                     <div className="col-span-2 text-sm font-medium text-gray-700">Floor {i }</div>
+                     <div>
+                       <label className="block text-xs font-medium text-gray-600 mb-1">Width (meters)</label>
+                       <input
+                         type="number"
+                         value={formData.widthM}
+                         disabled
+                         className="w-full p-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-600"
+                       />
+                       <p className="text-xs text-gray-500 mt-1">Width is fixed to warehouse width.</p>
+                     </div>
+                     <div>
+                       <label className="block text-xs font-medium text-gray-600 mb-1">Height (meters)</label>
+                       <input
+                         type="number"
+                         value={formData.floorHeights[i] ?? (() => {
+                           const base = formData.numFloors > 1 ? (formData.heightM / formData.numFloors) : formData.heightM;
+                           if (Number.isInteger(base)) return base;
+                           const nearTenth = Math.abs(base * 10 - Math.round(base * 10)) < 1e-9;
+                           return nearTenth ? Number((Math.round(base * 10) / 10).toFixed(1)) : Math.floor(base);
+                         })()}
+                         onChange={e => {
+                           const val = parseFloat(e.target.value);
+                           const next = [...formData.floorHeights];
+                           next[i] = isNaN(val) ? 0 : val;
+                           setFormData({ ...formData, floorHeights: next });
+                         }}
+                         className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                       />
+                     </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Elevation (meters from ground)</label>
+                        <input
+                          type="number"
+                          value={formData.floorOffsets?.[i] ?? i * (formData.floorHeights[i] || 0)}
+                          onChange={e => {
+                            const val = parseFloat(e.target.value);
+                            const next = [...(formData.floorOffsets || [])];
+                            next[i] = isNaN(val) ? 0 : val;
+                            setFormData({ ...formData, floorOffsets: next });
+                          }}
+                          className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+                     {formData.numFloors > 1 &&  errors.filter(er => er.scope === 'floor' && er.index === i).map((er, idx) => (
+                       <div key={idx} className="col-span-2 text-xs text-red-600">{ er.msg }</div>
+                     ))}
+                   </div>
+                 ))}
+                 {/* <p className="text-xs text-gray-500">
+                   Initial floor heights use warehouse height ÷ floors, rounded down.
+                 </p> */}
+                 {errors.filter(e => e.scope === 'floors').map((e, idx) => (
+                   <div key={idx} className="text-xs text-red-600">{e.msg}</div>
+                 ))}
+               </div>
             </div>
           )}
 
@@ -195,7 +321,10 @@ export default function WarehouseWizard({ onComplete, onClose }) {
                 </div>
                 <h3 className="text-xl font-bold text-gray-800">Ready to Build!</h3>
                 <p className="text-gray-600">
-                  We will create a <strong>{formData.widthM}m x {formData.depthM}m</strong> workspace with <strong>{formData.numFloors} floors</strong>.
+                  We will create a <strong>{formData.widthM}m x {formData.depthM}m x {formData.heightM}m</strong> warehouse with <strong>{formData.numFloors} floors</strong>.
+                </p>
+                <p className="text-sm text-gray-600">
+                  Total floors height: <strong>{formData.floorHeights.reduce((s, h) => s + (parseFloat(h) || 0), 0).toFixed(2)}m</strong> (max {formData.heightM}m)
                 </p>
                 <div className="mt-4 p-4 bg-blue-50 text-blue-800 rounded-lg text-sm">
                     <strong>Note:</strong> You will add Zones manually in the layout designer.
@@ -223,6 +352,7 @@ export default function WarehouseWizard({ onComplete, onClose }) {
            <button 
               onClick={handleNext}
               className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors"
+              disabled={errors.length > 0}
            >
               {step === 3 ? 'Launch Designer' : 'Next Step'}
               {step < 3 && <ArrowRight size={18} />}
