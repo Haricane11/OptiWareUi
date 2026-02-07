@@ -1,96 +1,154 @@
 'use client';
 
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 
 const WmsContext = createContext();
 
 // Mock Data Generator for Context
 const generateMockData = () => {
-  // 1. Create a Warehouse
-  const warehouses = [
-    {
-      id: 1,
-      name: 'Main Distribution Center',
-      location: 'New York, NY',
-      status: 'Active',
-      created_at: new Date().toISOString()
-    }
-  ];
-
-  // 2. Create Floors
-  const floors = [
-    { id: 1, warehouse_id: 1, name: 'Floor 0', level_number: 0, stairs_location: { x: 0, y: 0 } },
-    { id: 2, warehouse_id: 1, name: 'Floor 1', level_number: 1, stairs_location: { x: 0, y: 0 } }
-  ];
-
-  // 3. Create Zones for the Warehouse (linked to Floors)
-  const zones = [
-    { id: 1, warehouse_id: 1, floor_id: 1, zone_name: 'Zone A', zone_type: 'Cold Storage' },
-    { id: 2, warehouse_id: 1, floor_id: 1, zone_name: 'Zone B', zone_type: 'General' },
-    { id: 3, warehouse_id: 1, floor_id: 2, zone_name: 'Zone C', zone_type: 'Bulk Storage' }
-  ];
-
-  // 4. Create Shelves (Empty initially to let user generate)
-  const shelves = [];
-  
-  // Return empty structure, user will populate via Bulk Generator
   return {
-    isConfigured: false, // New flag for Wizard
-    warehouses,
-    floors,
-    zones,
-    shelves,
+    isConfigured: false,
+    isUpdateModalOpen: false,
+    activeUpdateId: null,
+    warehouses: [],
+    floors: [],
+    zones: [],
+    shelves: [],
     warehouseDims: {
       widthM: 30,
       depthM: 30,
       heightM: 10
     },
-    floorHeight: 5, // Default floor height
+    floorHeight: 5,
   };
 };
 
 export function WmsProvider({ children }) {
   const [state, setState] = useState(generateMockData());
 
+  
+
+  const openUpdateModal = (warehouseId) => {
+    setState(prev => ({ ...prev, isUpdateModalOpen: true, activeUpdateId: warehouseId }));
+  };
+
+  const closeUpdateModal = () => {
+    setState(prev => ({ ...prev, isUpdateModalOpen: false, activeUpdateId: null }));
+  };
+
+  const updateWarehouseMetadata = async (id, data, currentUserId) => {
+    try {
+      const res = await fetch(`http://localhost:8000/warehouses/${id}?current_user_id=${currentUserId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (res.ok) {
+        await fetchWarehouses();
+        return true;
+      }
+    } catch (error) {
+      console.error("Error updating warehouse:", error);
+    }
+    return false;
+  };
+
+  const fetchWarehouses = async () => {
+    console.log("Debug: fetchWarehouses called");
+    try {
+      console.log("Debug: Fetching from http://localhost:8000/warehouses");
+      const res = await fetch("http://localhost:8000/warehouses");
+      console.log("Debug: Fetch status:", res.status);
+      const data = await res.json();
+      console.log("Retrieved Warehouses:", data);
+      
+      if (data && Array.isArray(data)) {
+        // Correctly flatten the nested hierarchy while maintaining IDs and fields
+        const allFloors = [];
+        const allZones = [];
+        const allShelves = [];
+
+        data.forEach(wh => {
+          (wh.floors || []).forEach(f => {
+            allFloors.push({
+              ...f,
+              warehouse_id: wh.id,
+              name: f.name || `Floor ${f.floor_number}`,
+              id: f.id || `temp-f-${wh.id}-${f.floor_number}`
+            });
+
+            (f.zones || []).forEach(z => {
+              allZones.push({
+                ...z,
+                floor_id: f.id,
+                id: z.id || `temp-z-${f.id}-${z.zone_name}`
+              });
+
+              (z.shelves || []).forEach(s => {
+                allShelves.push({
+                  ...s,
+                  zone_id: z.id,
+                  id: s.id || `temp-s-${z.id}-${s.shelf_code}`,
+                  name: s.name || s.shelf_code // Ensure name fallback
+                });
+              });
+            });
+          });
+        });
+
+        setState(prev => ({
+          ...prev,
+          warehouses: data,
+          floors: allFloors,
+          zones: allZones,
+          shelves: allShelves,
+          isConfigured: data.length > 0
+        }));
+      }
+    } catch (error) {
+      console.error("Error fetching warehouses:", error);
+    }
+  };
+useEffect(() => {
+    fetchWarehouses();
+  }, []);
   // Helper: Find next available position
-  // Smart Creation Logic: Start at (2,2), find empty space
   const findNextAvailablePosition = (width, depth, floorId, itemType = 'shelf') => {
     let x = itemType === 'shelf' ? 2 : 0;
     let y = itemType === 'shelf' ? 2 : 0;
     const gap = 0.5;
-    const currentFloorObj = state.floors.find(f => f.id === floorId);
+    const currentFloorObj = state.floors.find(f => f.id == floorId);
     const floorWidth = (currentFloorObj && currentFloorObj.width) ? currentFloorObj.width : state.warehouseDims.widthM;
     const floorDepth = state.warehouseDims.depthM;
 
-    // Determine what to check against based on itemType
     let existingItems = [];
     if (itemType === 'shelf') {
-        const floorZones = state.zones.filter(z => z.floor_id === floorId).map(z => z.id);
+        const floorZones = state.zones.filter(z => z.floor_id == floorId).map(z => z.id);
         existingItems = state.shelves.filter(s => floorZones.includes(s.zone_id));
     } else if (itemType === 'zone') {
-        existingItems = state.zones.filter(z => z.floor_id === floorId);
+        existingItems = state.zones.filter(z => z.floor_id == floorId);
     }
 
-    // Add Stairs as Obstacle
-    const currentFloor = state.floors.find(f => f.id === floorId);
-    if (currentFloor && currentFloor.stairs_location) {
-         existingItems.push({
-             x: currentFloor.stairs_location.x,
-             y: currentFloor.stairs_location.y,
-             width: currentFloor.stair_width || 2,
-             depth: currentFloor.stair_depth || 2
+    const currentFloorContent = state.floors.find(f => f.id == floorId);
+    if (currentFloorContent && currentFloorContent.areas && currentFloorContent.areas.length > 0) {
+         currentFloorContent.areas.forEach(st => {
+           existingItems.push({
+             location_x: st.location_x,
+             location_y: st.location_y,
+             width: st.width || 2,
+             depth: st.depth || 2
+           });
          });
     }
 
     // Simple grid search until no collision
-    // Max attempts to prevent infinite loop
     let attempts = 0;
     while (attempts < 1000) {
       const withinBounds = (x + width <= floorWidth) && (y + depth <= floorDepth);
       if (withinBounds) {
         const collision = existingItems.some(item => {
-          const itemX = item.location_x || item.x || 0;
-          const itemY = item.location_y || item.y || 0;
+          const itemX = item.location_x || 0;
+          const itemY = item.location_y || 0;
           const itemW = item.width || 0;
           const itemD = item.depth || 0;
           return (
@@ -105,84 +163,320 @@ export function WmsProvider({ children }) {
         }
       }
 
-      // Advance scan position
-      x += width + gap;
+      x += 0.5;
       if (x + width > floorWidth) {
-        x = 0;
-        y += depth + gap;
-        if (y + depth > floorDepth) {
-          // No space left in current layout scan
-          break;
-        }
+        x = itemType === 'shelf' ? 2 : 0;
+        y += 0.5;
       }
+      if (y + depth > floorDepth) break;
       attempts++;
     }
-    return { x: 0, y: 0 };
+    return { x: 2, y: 2 }; 
   };
 
-  const updateShelfPosition = (shelfId, x, y) => {
+  const updateShelfPosition = async (shelfId, x, y) => {
+    // Update local state first for responsiveness
     setState(prev => ({
       ...prev,
       shelves: prev.shelves.map(s => s.id === shelfId ? { ...s, location_x: x, location_y: y } : s)
     }));
+    // Persist to DB
+    await updateShelf(shelfId, { location_x: x, location_y: y });
   };
 
-  const updateStairsPosition = (floorId, x, y) => {
-     // Update stairs for ALL floors to keep them synced
+  const updateAreaPosition = async (floorId, areaIndex, x, y) => {
+     const floor = state.floors.find(f => f.id === floorId);
+     const area = floor?.areas?.[areaIndex];
+     if (!area || !area.id) return;
+
      setState(prev => ({
         ...prev,
-        floors: prev.floors.map(f => ({
-           ...f,
-           stairs_location: { x, y }
-        }))
+        floors: prev.floors.map(f => {
+           if (f.id !== floorId) return f;
+           const areas = Array.isArray(f.areas) ? [...f.areas] : [];
+           areas[areaIndex] = { ...areas[areaIndex], location_x: x, location_y: y };
+           return { ...f, areas };
+        })
      }));
+     await updateArea(area.id, { location_x: x, location_y: y });
   };
 
-  const updateZonePosition = (zoneId, x, y) => {
-    setState(prev => {
-        const oldZone = prev.zones.find(z => z.id === zoneId);
-        if (!oldZone) return prev;
+  const addArea = async (floorId, area_name = 'Area') => {
+    const floor = state.floors.find(f => f.id === floorId);
+    if (!floor) return;
+    const width = floor.area_width || 2;
+    const depth = floor.area_depth || 2;
+    const pos = findNextAvailablePosition(width, depth, floorId, 'zone');
+    
+    const areaData = { 
+        location_x: pos.x, 
+        location_y: pos.y, 
+        width, 
+        depth, 
+        height: 3.0, 
+        area_name 
+    };
 
-        const dx = x - oldZone.x;
-        const dy = y - oldZone.y;
-
-        return {
-            ...prev,
-            zones: prev.zones.map(z => z.id === zoneId ? { ...z, x, y } : z),
-            shelves: prev.shelves.map(s => {
-                if (s.zone_id === zoneId) {
-                    return {
-                        ...s,
-                        location_x: s.location_x + dx,
-                        location_y: s.location_y + dy
-                    };
-                }
-                return s;
-            })
-        };
-    });
+    try {
+      const res = await fetch(`http://localhost:8000/floors/${floorId}/areas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(areaData)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setState(prev => ({
+          ...prev,
+          floors: prev.floors.map(f => 
+            f.id === floorId 
+              ? { ...f, areas: [...(Array.isArray(f.areas) ? f.areas : []), { ...areaData, id: data.id }] }
+              : f
+          )
+        }));
+      }
+    } catch (error) {
+      console.error("Error adding area:", error);
+    }
   };
 
-  const updateZoneDimensions = (zoneId, width, depth) => {
+  const updateZonePosition = async (zoneId, x, y) => {
+    const oldZone = state.zones.find(z => z.id === zoneId);
+    if (!oldZone) return;
+
+    const dx = x - oldZone.location_x;
+    const dy = y - oldZone.location_y;
+
+    setState(prev => ({
+        ...prev,
+        zones: prev.zones.map(z => z.id === zoneId ? { ...z, location_x: x, location_y: y } : z),
+        shelves: prev.shelves.map(s => {
+            if (s.zone_id === zoneId) {
+                return {
+                    ...s,
+                    location_x: s.location_x + dx,
+                    location_y: s.location_y + dy
+                };
+            }
+            return s;
+        })
+    }));
+
+    try {
+      await fetch(`http://localhost:8000/zones/${zoneId}/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ location_x: x, location_y: y })
+      });
+    } catch (error) {
+      console.error("Error moving zone and shelves:", error);
+    }
+  };
+
+  const updateZoneDimensions = async (zoneId, width, depth) => {
     setState(prev => ({
       ...prev,
       zones: prev.zones.map(z => z.id === zoneId ? { ...z, width, depth } : z)
     }));
+    await updateZone(zoneId, { width, depth });
   };
 
-  const removeZone = (zoneId) => {
+  const updateAreaDimensions = async (floorId, areaIndex, width, depth, height) => {
+     const floor = state.floors.find(f => f.id === floorId);
+     const area = floor?.areas?.[areaIndex];
+     if (!area || !area.id) return;
+
     setState(prev => ({
       ...prev,
-      zones: prev.zones.filter(z => z.id !== zoneId),
-      // Also remove shelves in this zone? Or keep them as orphaned?
-      // Let's keep them but maybe warn user. For now, just remove zone.
-      // Ideally we should filter shelves: shelves: prev.shelves.filter(s => s.zone_id !== zoneId)
-      // But let's keep it simple for now, maybe they want to move shelves to another zone.
+      floors: prev.floors.map(f => {
+        if (f.id !== floorId) return f;
+        const areas = Array.isArray(f.areas) ? [...f.areas] : [];
+        if (areas[areaIndex]) {
+          areas[areaIndex] = { ...areas[areaIndex], width, depth, height };
+        }
+        return { ...f, areas };
+      })
     }));
+    await updateArea(area.id, { width, depth, height });
+  };
+
+  const updateAreaLabel = async (floorId, areaIndex, area_name) => {
+     const floor = state.floors.find(f => f.id === floorId);
+     const area = floor?.areas?.[areaIndex];
+     if (!area || !area.id) return;
+
+    setState(prev => ({
+      ...prev,
+      floors: prev.floors.map(f => {
+        if (f.id !== floorId) return f;
+        const areas = Array.isArray(f.areas) ? [...f.areas] : [];
+        if (areas[areaIndex]) {
+          areas[areaIndex] = { ...areas[areaIndex], area_name };
+        }
+        return { ...f, areas };
+      })
+    }));
+    await updateArea(area.id, { area_name });
+  };
+
+  const removeZone = async (zoneId) => {
+    try {
+      const res = await fetch(`http://localhost:8000/zones/${zoneId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setState(prev => ({
+          ...prev,
+          zones: prev.zones.filter(z => z.id !== zoneId),
+          shelves: prev.shelves.filter(s => s.zone_id !== zoneId)
+        }));
+        return true;
+      }
+    } catch (error) {
+      console.error("Error removing zone:", error);
+    }
+    return false;
+  };
+
+  const removeArea = async (floorId, areaIndex) => {
+    const floor = state.floors.find(f => f.id === floorId);
+    const area = floor?.areas?.[areaIndex];
+    if (!area || !area.id) return;
+
+    try {
+      const res = await fetch(`http://localhost:8000/areas/${area.id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setState(prev => ({
+          ...prev,
+          floors: prev.floors.map(f => {
+            if (f.id !== floorId) return f;
+            const areas = Array.isArray(f.areas) ? [...f.areas] : [];
+            return {
+              ...f,
+              areas: areas.filter((_, idx) => idx !== areaIndex)
+            };
+          })
+        }));
+        return true;
+      }
+    } catch (error) {
+      console.error("Error removing area:", error);
+    }
+    return false;
+  };
+
+  const addZone = async (floorId, zoneData) => {
+    try {
+      const res = await fetch(`http://localhost:8000/floors/${floorId}/zones`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(zoneData)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const newZone = { ...zoneData, id: data.id, floor_id: floorId };
+        setState(prev => ({
+          ...prev,
+          zones: [...prev.zones, newZone]
+        }));
+        return newZone;
+      }
+    } catch (error) {
+      console.error("Error adding zone:", error);
+    }
+  };
+
+  const updateShelf = async (shelfId, shelfData) => {
+    try {
+      const res = await fetch(`http://localhost:8000/shelves/${shelfId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(shelfData)
+      });
+      return res.ok;
+    } catch (error) {
+      console.error("Error updating shelf:", error);
+      return false;
+    }
+  };
+
+  const deleteShelf = async (shelfId) => {
+    try {
+      const res = await fetch(`http://localhost:8000/shelves/${shelfId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setState(prev => ({
+          ...prev,
+          shelves: prev.shelves.filter(s => s.id != shelfId)
+        }));
+        return true;
+      }
+    } catch (error) {
+      console.error("Error deleting shelf:", error);
+    }
+    return false;
+  };
+
+  const updateZone = async (zoneId, zoneData) => {
+    try {
+      const res = await fetch(`http://localhost:8000/zones/${zoneId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(zoneData)
+      });
+      return res.ok;
+    } catch (error) {
+      console.error("Error updating zone:", error);
+      return false;
+    }
+  };
+
+  const updateArea = async (areaId, areaData) => {
+    try {
+      const res = await fetch(`http://localhost:8000/areas/${areaId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(areaData)
+      });
+      return res.ok;
+    } catch (error) {
+      console.error("Error updating area:", error);
+      return false;
+    }
+  };
+
+  const saveBulkShelves = async (zoneId, shelves) => {
+    try {
+        const res = await fetch(`http://localhost:8000/zones/${zoneId}/shelves/bulk`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(shelves.map(s => ({
+                ...s,
+                orientation_angle: s.orientation_angle || 0,
+                status: s.status || 'active'
+            })))
+        });
+        if (res.ok) {
+            // Re-fetch to get IDs
+            await fetchWarehouses();
+            return true;
+        }
+    } catch (error) {
+        console.error("Error saving bulk shelves:", error);
+    }
+    return false;
   };
 
   return (
-    <WmsContext.Provider value={{ state, setState, findNextAvailablePosition, updateShelfPosition, updateStairsPosition, updateZonePosition, updateZoneDimensions, removeZone }}>
+    <WmsContext.Provider value={{ 
+        state, setState, fetchWarehouses, findNextAvailablePosition, 
+        updateShelfPosition, updateAreaPosition, updateAreaDimensions, updateAreaLabel, 
+        updateZonePosition, updateZoneDimensions, removeZone, addArea, removeArea, 
+        addZone, saveBulkShelves, updateShelf, deleteShelf, updateZone, updateArea,
+        openUpdateModal, closeUpdateModal, updateWarehouseMetadata
+    }}>
       {children}
     </WmsContext.Provider>
   );

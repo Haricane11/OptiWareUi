@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect} from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Box, Layers, X, Info, Maximize2, Plus, Trash2 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 import Draggable from 'react-draggable';
 import { WmsProvider, useWms } from '../../../context/WmsContext';
 import ShelfScene from '../../../components/ShelfScene';
@@ -28,7 +29,7 @@ const DraggableZone = ({ zone, PPM, handleStop, startResize, removeZone, childre
       key={zone.id}
       bounds="parent"
       grid={[0.5 * PPM, 0.5 * PPM]}
-      position={{ x: (zone.x || 0) * PPM, y: (zone.y || 0) * PPM }}
+      position={{ x: (zone.location_x || 0) * PPM, y: (zone.location_y || 0) * PPM }}
       onStart={() => setIsDragging(true)}
       onStop={(e, data) => handleStop(e, data, zone, 'zone')}
     >
@@ -108,52 +109,82 @@ const DraggableShelf = ({ shelf, PPM, handleStop, setIsDragging, isDragging, set
   );
 };
 
-const DraggableStairs = ({ currentFloor, PPM, handleStop, setIsDragging, onSelect }) => {
+const DraggableArea = ({ floorId, area, index, PPM, handleStop, setIsDragging, onSelect, removeArea }) => {
     const nodeRef = useRef(null);
-    const width = (currentFloor.stair_width || 2) * PPM;
-    const depth = (currentFloor.stair_depth || 2) * PPM;
+    const width = (area.width || 2) * PPM;
+    const depth = (area.depth || 2) * PPM;
 
     return (
         <Draggable
             nodeRef={nodeRef}
             bounds="parent"
             grid={[0.5 * PPM, 0.5 * PPM]}
-            position={{ x: currentFloor.stairs_location.x * PPM, y: currentFloor.stairs_location.y * PPM }}
+            position={{ x: (area.location_x || 0) * PPM, y: (area.location_y || 0) * PPM }}
             onStart={() => setIsDragging(true)}
-            onStop={(e, data) => handleStop(e, data, null, 'stairs')}
+            onStop={(e, data) => handleStop(e, data, { floorId, index }, 'area')}
         >
             <div 
                 ref={nodeRef}
                 onClick={(e) => { e.stopPropagation(); onSelect(); }}
-                className="absolute bg-red-500/90 border-2 border-red-700 text-white flex items-center justify-center cursor-move shadow-md z-30 rounded-sm hover:border-white"
+                className="absolute bg-red-500/90 border-2 border-red-700 text-white flex items-center justify-center cursor-move shadow-md z-30 rounded-sm hover:border-white group"
                 style={{ width: `${width}px`, height: `${depth}px` }}
             >
                 <div className="text-center leading-tight">
-                    <span className="text-[10px] font-bold pointer-events-none select-none block">STAIRS</span>
+                    <span className="text-[10px] font-bold pointer-events-none select-none block uppercase">{area.area_name || 'AREA'}</span>
                     <span className="text-[8px] opacity-80 pointer-events-none select-none block">
                         {(width/PPM).toFixed(1)}x{(depth/PPM).toFixed(1)}m
                     </span>
                 </div>
+
+                {/* Delete Button */}
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if(confirm('Are you sure you want to delete this area?')) {
+                            removeArea(floorId, index);
+                        }
+                    }}
+                    className="absolute top-0 right-0 p-0.5 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 rounded"
+                    title="Delete Area"
+                >
+                    <X size={10} />
+                </button>
             </div>
         </Draggable>
     );
 };
 
 function WarehouseContent() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/');
+    }
+  }, [user, loading, router]);
+
   const [viewMode, setViewMode] = useState('2d'); // '2d' | '3d'
   const [selectedShelf, setSelectedShelf] = useState(null);
-  const { state, updateShelfPosition, updateStairsPosition, updateZonePosition, updateZoneDimensions, findNextAvailablePosition, setState, removeZone } = useWms();
-  const [selectedStairs, setSelectedStairs] = useState(false);
-  const [currentFloorId, setCurrentFloorId] = useState(() => {
-    const first = state.floors.find(f => f.level_number === 0) || state.floors[0];
-    return first ? first.id : 1;
-  });
+  const { state, updateShelfPosition, updateAreaPosition, updateZonePosition, updateZoneDimensions, updateAreaDimensions, updateAreaLabel, findNextAvailablePosition, setState, removeZone, addArea, removeArea, addZone } = useWms();
+  const [selectedArea, setSelectedArea] = useState(false);
+ const [currentFloorId, setCurrentFloorId] = useState(() => {
+  // 1. Find the user's warehouse
+  const myWh = state.warehouses?.find(wh => wh.id === user?.warehouse_id);
+  
+  if (myWh?.floors?.length > 0) {
+    // 2. Look for floor_number 0, otherwise take the first floor available
+    const groundFloor = myWh.floors.find(f => f.floor_number === 0);
+    return groundFloor ? groundFloor.id : myWh.floors[0].id;
+  }
+  
+  return null; 
+});
   const [isDragging, setIsDragging] = useState(false);
   const [isZoneModalOpen, setIsZoneModalOpen] = useState(false);
   const [newZoneData, setNewZoneData] = useState({ name: '', type: 'General' });
   const [zoneEditor, setZoneEditor] = useState(null);
   const resizingRef = useRef(null);
-  const router = useRouter();
   const searchParams = useSearchParams();
   const editMode = searchParams.get('edit') === '1';
   const stableUnits = (s) => {
@@ -176,13 +207,13 @@ function WarehouseContent() {
   const clearZoneHover = () => setZoneHover(prev => ({ ...prev, show: false }));
 
   // If not configured or explicitly editing, show Wizard
-  if (!state.isConfigured || editMode) {
+  if (!user || !state.isConfigured || editMode) {
+     if (!user) return null; // Wait for redirect
      return <WarehouseWizard onClose={() => {
         if (state.isConfigured) router.push('/dashboard/warehouse');
         else router.push('/dashboard');
      }} />;
   }
-
   // Filter shelves for 2D view based on current floor
   const currentFloorZones = state.zones.filter(z => z.floor_id === currentFloorId);
   const floorZones = currentFloorZones.map(z => z.id);
@@ -227,27 +258,30 @@ function WarehouseContent() {
     const snappedWidth = Math.round(newPixelWidth / snap) * snap;
     const snappedHeight = Math.round(newPixelHeight / snap) * snap;
 
-    // Check Stair Collision during resize
+    // Check Area Collision during resize
     const floor = state.floors.find(f => f.id === currentFloorId);
-    if (floor && state.floors.length > 1) {
-        const stairsLoc = floor.stairs_location || { x: 0, y: 0 };
+    if (floor) {
         // Current Zone Position (static during resize)
         const zone = state.zones.find(z => z.id === zoneId);
-        if (zone) {
+        if (zone && Array.isArray(floor.areas)) {
             const resizingRect = { 
-                x: zone.x, 
-                y: zone.y, 
+                x: zone.location_x, 
+                y: zone.location_y, 
                 w: snappedWidth / PPM, 
                 h: snappedHeight / PPM 
             };
-            const stairsRect = {
-                x: stairsLoc.x,
-                y: stairsLoc.y,
-                w: floor.stair_width || 2,
-                h: floor.stair_depth || 2
-            };
             
-            if (checkOverlap(resizingRect, stairsRect)) {
+            const overlappingArea = floor.areas.find(area => {
+                const areaRect = {
+                    x: area.location_x,
+                    y: area.location_y,
+                    w: area.width || 2,
+                    h: area.depth || 2
+                };
+                return checkOverlap(resizingRect, areaRect);
+            });
+            
+            if (overlappingArea) {
                 // Ignore this resize step if it overlaps
                 return;
             }
@@ -302,46 +336,32 @@ function WarehouseContent() {
 
     if (type === 'shelf') {
         updateShelfPosition(item.id, meterX, meterY);
-    } else if (type === 'stairs') {
-        // Check Zone Collision
-        const floor = state.floors.find(f => f.id === currentFloorId);
-        if (state.floors.length > 1) {
-            const stairW = floor.stair_width || 2;
-            const stairD = floor.stair_depth || 2;
-            
-            const newStairRect = { x: meterX, y: meterY, w: stairW, h: stairD };
-            
-            const overlappingZone = state.zones.find(z => {
-                if (z.floor_id !== currentFloorId) return false;
-                const zoneRect = { x: z.x, y: z.y, w: z.width, h: z.depth };
-                return checkOverlap(newStairRect, zoneRect);
-            });
-
-            if (overlappingZone) {
-                alert(`Cannot place Stairs over ${overlappingZone.zone_name}!`);
-                return;
-            }
-        }
-        updateStairsPosition(currentFloorId, meterX, meterY);
+    } else if (type === 'area') {
+        const { floorId, index } = item || {};
+        updateAreaPosition(floorId || currentFloorId, typeof index === 'number' ? index : 0, meterX, meterY);
     } else if (type === 'zone') {
-        // Check Stair Collision
+        // Check Area Collision
         const floor = state.floors.find(f => f.id === currentFloorId);
-        if (floor && state.floors.length > 1) { 
-             const stairsLoc = floor.stairs_location || { x: 0, y: 0 };
-             const stairsRect = { 
-                 x: stairsLoc.x, 
-                 y: stairsLoc.y, 
-                 w: floor.stair_width || 2, 
-                 h: floor.stair_depth || 2 
-             };
+        if (floor && Array.isArray(floor.areas)) { 
              const newZoneRect = { 
                  x: meterX, 
                  y: meterY, 
                  w: item.width, 
                  h: item.depth 
              };
-             if (checkOverlap(newZoneRect, stairsRect)) {
-                 alert("Cannot place Zone over Stairs!");
+
+             const overlappingArea = floor.areas.find(area => {
+                 const areaRect = {
+                     x: area.location_x,
+                     y: area.location_y,
+                     w: area.width || 2,
+                     h: area.depth || 2
+                 };
+                 return checkOverlap(newZoneRect, areaRect);
+             });
+
+             if (overlappingArea) {
+                 alert(`Cannot place Zone over ${overlappingArea.area_name || 'Area'}!`);
                  return; // Prevent update
              }
         }
@@ -360,33 +380,31 @@ function WarehouseContent() {
       setIsZoneModalOpen(true);
   };
 
-  const handleConfirmAddZone = () => {
+  const handleConfirmAddZone = async () => {
     if (!newZoneData.name) {
         alert("Zone Name is required");
         return;
     }
 
     const preset = ZONE_PRESETS[newZoneData.type] || ZONE_PRESETS['General'];
+    const pos = findNextAvailablePosition(10, 8, currentFloorId, 'zone');
 
-    const newZone = {
-      id: Date.now(),
-      warehouse_id: 1,
-      floor_id: currentFloorId,
+    const zoneData = {
       zone_name: newZoneData.name,
       zone_type: newZoneData.type,
-      default_shelf_type: preset.shelfType,
       width: 10,
       depth: 8,
-      color: preset.color
+      location_x: pos.x,
+      location_y: pos.y,
+      shelves: []
     };
-    const pos = findNextAvailablePosition(newZone.width, newZone.depth, currentFloorId, 'zone');
-    newZone.x = pos.x;
-    newZone.y = pos.y;
-    setState(prev => ({
-      ...prev,
-      zones: [...prev.zones, newZone]
-    }));
-    setIsZoneModalOpen(false);
+
+    const success = await addZone(currentFloorId, zoneData);
+    if (success) {
+      setIsZoneModalOpen(false);
+    } else {
+      alert("Failed to create zone on server.");
+    }
   };
 
   const handleAddShelf = () => {
@@ -429,13 +447,6 @@ function WarehouseContent() {
     }));
   };
 
-  const handleUpdateStairsSize = (w, d) => {
-    setState(prev => ({
-        ...prev,
-        floors: prev.floors.map(f => f.id === currentFloorId ? { ...f, stair_width: parseFloat(w), stair_depth: parseFloat(d) } : f)
-    }));
-  };
-
   return (
     <div className="flex flex-col h-full">
       <div className="flex justify-between items-center mb-6">
@@ -455,24 +466,39 @@ function WarehouseContent() {
               </button>
           )}
 
+          {viewMode === '2d' && (
+              <button 
+                onClick={() => addArea(currentFloorId, 'New Area')}
+                className="bg-red-600 text-white px-4 py-2 rounded-lg font-medium shadow-sm hover:bg-red-700 flex items-center gap-2"
+              >
+                Add Area
+              </button>
+          )}
+
           {/* Add Shelf is available in Shelves Layout (Data Entry) page, not here */}
 
           {/* Floor Switcher */}
-          <div className="flex items-center bg-white rounded-lg border border-gray-200 p-1 shadow-sm">
-            {state.floors.map(floor => (
-              <button
-                key={floor.id}
-                onClick={() => setCurrentFloorId(floor.id)}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                  currentFloorId === floor.id
-                    ? 'bg-blue-100 text-blue-700 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {floor.name}
-              </button>
-            ))}
-          </div>
+         <div className="flex items-center bg-white rounded-lg border border-gray-200 p-1 shadow-sm">
+          {state.warehouses.map(wh => {
+            if (wh.id === user?.warehouse_id) {
+              // You MUST return the mapped array here
+              return wh.floors.map(floor => (
+                <button
+                  key={floor.id}
+                  onClick={() => setCurrentFloorId(floor.id)}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                    currentFloorId === floor.id
+                      ? 'bg-blue-100 text-blue-700 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {floor.name || `Floor ${floor.floor_number}`}
+                </button>
+              ));
+            }
+            return null; // Return null for warehouses that don't match
+          })}
+        </div>
 
           {/* Toggle Switch */}
           <div className="bg-white p-1 rounded-lg border border-gray-200 flex items-center shadow-sm">
@@ -542,10 +568,10 @@ function WarehouseContent() {
                          <DraggableShelf
                            key={shelf.id}
                            shelf={{
-                               ...shelf,
-                               relativeX: (shelf.location_x - zone.x) * PPM,
-                               relativeY: (shelf.location_y - zone.y) * PPM
-                           }}
+                              ...shelf,
+                              relativeX: (shelf.location_x - zone.location_x) * PPM,
+                              relativeY: (shelf.location_y - zone.location_y) * PPM
+                          }}
                            PPM={PPM}
                            handleStop={handleStop}
                            setIsDragging={setIsDragging}
@@ -570,16 +596,20 @@ function WarehouseContent() {
 
                  {/* Shelves loop removed (merged into zones) */}
 
-                 {/* Stairs (Synced) */}
-                 {currentFloor && state.floors.length > 1 && (
-                    <DraggableStairs
-                        currentFloor={currentFloor}
+                 {/* Areas (Synced) */}
+                 {currentFloor && Array.isArray(currentFloor.areas) && currentFloor.areas.map((area, idx) => (
+                    <DraggableArea
+                        key={area.id || idx}
+                        floorId={currentFloor.id}
+                        area={area}
+                        index={idx}
                         PPM={PPM}
                         handleStop={handleStop}
                         setIsDragging={setIsDragging}
-                        onSelect={() => { setSelectedShelf(null); setSelectedStairs(true); }}
+                        onSelect={() => { setSelectedShelf(null); setSelectedArea(idx); }}
+                        removeArea={removeArea}
                     />
-                 )}
+                 ))}
 
                </div>
              ) : (
@@ -672,8 +702,8 @@ function WarehouseContent() {
           </div>
         )}
 
-        {/* Floating Config Panel for Stairs */}
-        {selectedStairs && currentFloor && !selectedShelf && (
+        {/* Floating Config Panel for Areas */}
+        {selectedArea !== false && currentFloor && !selectedShelf && (
              <div className="w-80 bg-white border-l border-gray-200 shadow-xl flex flex-col animate-slide-in-right z-20">
                 <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-red-50">
                     <div className="flex items-center gap-2">
@@ -681,23 +711,32 @@ function WarehouseContent() {
                              <Layers size={18} />
                         </div>
                         <div>
-                            <h2 className="text-lg font-bold text-gray-900">Stair/Access</h2>
+                            <h2 className="text-lg font-bold text-gray-900">Area Settings</h2>
                             <p className="text-xs text-gray-500">Floor {currentFloorId}</p>
                         </div>
                     </div>
-                    <button onClick={() => setSelectedStairs(false)} className="text-gray-400 hover:text-gray-600">
+                    <button onClick={() => setSelectedArea(false)} className="text-gray-400 hover:text-gray-600">
                         <X size={20} />
                     </button>
                 </div>
                 
                 <div className="p-6 space-y-6">
                     <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Area Name</label>
+                        <input 
+                            type="text" 
+                            value={currentFloor.areas[selectedArea]?.area_name || ''}
+                            onChange={(e) => updateAreaLabel(currentFloor.id, selectedArea, e.target.value)}
+                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2 border"
+                        />
+                    </div>
+                    <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Width (meters)</label>
                         <input 
                             type="number" 
-                            step="0.5"
-                            value={currentFloor.stair_width || 2}
-                            onChange={(e) => handleUpdateStairsSize(e.target.value, currentFloor.stair_depth || 2)}
+                            step="0.1"
+                            value={currentFloor.areas[selectedArea]?.width || 2}
+                            onChange={(e) => updateAreaDimensions(currentFloor.id, selectedArea, parseFloat(e.target.value), currentFloor.areas[selectedArea].depth, currentFloor.areas[selectedArea].height)}
                             className="w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2 border"
                         />
                     </div>
@@ -705,9 +744,9 @@ function WarehouseContent() {
                         <label className="block text-sm font-medium text-gray-700 mb-1">Depth (meters)</label>
                         <input 
                             type="number" 
-                            step="0.5"
-                            value={currentFloor.stair_depth || 2}
-                            onChange={(e) => handleUpdateStairsSize(currentFloor.stair_width || 2, e.target.value)}
+                            step="0.1"
+                            value={currentFloor.areas[selectedArea]?.depth || 2}
+                            onChange={(e) => updateAreaDimensions(currentFloor.id, selectedArea, currentFloor.areas[selectedArea].width, parseFloat(e.target.value), currentFloor.areas[selectedArea].height)}
                             className="w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2 border"
                         />
                     </div>
@@ -715,7 +754,7 @@ function WarehouseContent() {
                     <div className="p-4 bg-orange-50 rounded-lg border border-orange-100">
                         <h4 className="text-sm font-bold text-orange-800 mb-1">Collision Warning</h4>
                         <p className="text-xs text-orange-700">
-                            Objects placed here will block shelf generation in this area. Move the red box to the correct location of your stairs/elevator.
+                            Objects placed here will block shelf generation in this area. Move the red box to the correct location of your stairs, elevator, or obstacles.
                         </p>
                     </div>
                 </div>

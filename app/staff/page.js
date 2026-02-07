@@ -48,7 +48,7 @@ export default function StaffPage() {
       }
     }
     return "Navigate to " + currentTask.target.shelfName;
-  }, [staffLocation.floorId, currentTask.target.floorId, viewFloorId]);
+  }, [staffLocation.floorId, currentTask.target.floorId, viewFloorId, currentTask.target.shelfName]);
 
   const handleFloorSwitch = (floorId) => {
     setViewFloorId(floorId);

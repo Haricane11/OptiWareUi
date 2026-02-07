@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { 
@@ -16,75 +16,95 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useWms } from '@/context/WmsContext';
+import WarehouseWizard from './WarehouseWizard';
 
-function buildMenuItems(isConfigured) {
+function buildMenuItems(user, state, openUpdateModal) {
+  const ownWarehouse = (state.warehouses || []).find(wh => wh.created_by === user?.id);
+  const otherWarehouses = (state.warehouses || []).filter(wh => wh.created_by !== user?.id);
 
-  const warehouseSubItems = isConfigured
-    ? [
-        { name: 'Update Warehouse', path: '/dashboard/warehouse?edit=1' },
-        { name: 'Shelves Layout', path: '/dashboard/warehouse/layout' },
-        { name: 'Shelves View', path: '/dashboard/warehouse' }
-      ]
-    : [
-        { name: 'Create Warehouse', path: '/dashboard/warehouse' }
-      ];
-  return [
+  const warehouseSubItems = [];
+  
+  if (user?.role === 'manager') {
+    if (ownWarehouse) {
+      warehouseSubItems.push({ 
+        name: 'Update Warehouse', 
+        onClick: () => openUpdateModal(ownWarehouse.id) 
+      });
+      warehouseSubItems.push({ name: 'Shelves Layout', path: `/dashboard/warehouse/layout?warehouseId=${ownWarehouse.id}` });
+      warehouseSubItems.push({ name: '3D View', path: `/dashboard/warehouse?warehouseId=${ownWarehouse.id}&view=3d` });
+    } else {
+      warehouseSubItems.push({ name: 'Create Warehouse', path: '/dashboard/warehouse' });
+    }
+  }
+
+  const menuItems = [
     {
       title: 'Dashboard',
       icon: LayoutDashboard,
       path: '/dashboard',
-    },
-    {
-      title: 'Procurement',
-      icon: ShoppingCart,
-      path: '/dashboard/procurement',
-      subItems: [
-        { name: 'Suppliers', path: '/dashboard/procurement' },
-        { name: 'Purchase Orders', path: '/dashboard/procurement' },
-        { name: 'Invoices', path: '/dashboard/procurement' }
-      ]
-    },
-    {
-      title: 'Fulfillment',
-      icon: Truck,
-      path: '/dashboard/fulfillment',
-      subItems: [
-        { name: 'Sales Orders', path: '/dashboard/fulfillment' },
-        { name: 'Delivery Notes', path: '/dashboard/fulfillment' }
-      ]
-    },
-    {
-      title: 'Inventory Control',
-      icon: Box,
-      path: '/dashboard/inventory',
-      subItems: [
-        { name: 'Stock Levels', path: '/dashboard/inventory' },
-        { name: 'Financial Loss', path: '/dashboard/inventory/financial' },
-        { name: 'Reorder Decisions', path: '/dashboard/inventory' }
-      ]
-    },
-    {
-      title: 'Warehouse Setup',
-      icon: LayoutGrid,
-      path: '/dashboard/warehouse',
-      subItems: warehouseSubItems
-    },
-    {
-      title: 'Staff Portal',
-      icon: Box,
-      path: '/staff',
-    },
+    }
   ];
+
+  if (user?.role === 'manager') {
+    menuItems.push(
+      {
+        title: 'Procurement',
+        icon: ShoppingCart,
+        path: '/dashboard/procurement',
+        subItems: [
+          { name: 'Suppliers', path: '/dashboard/procurement' },
+          { name: 'Purchase Orders', path: '/dashboard/procurement' },
+          { name: 'Invoices', path: '/dashboard/procurement' }
+        ]
+      },
+      {
+        title: 'Fulfillment',
+        icon: Truck,
+        path: '/dashboard/fulfillment',
+        subItems: [
+          { name: 'Sales Orders', path: '/dashboard/fulfillment' },
+          { name: 'Delivery Notes', path: '/dashboard/fulfillment' }
+        ]
+      },
+      {
+        title: 'Inventory Control',
+        icon: Box,
+        path: '/dashboard/inventory',
+        subItems: [
+          { name: 'Stock Levels', path: '/dashboard/inventory' },
+          { name: 'Financial Loss', path: '/dashboard/inventory/financial' },
+          { name: 'Reorder Decisions', path: '/dashboard/inventory' }
+        ]
+      },
+      {
+        title: 'Warehouse Setup',
+        icon: LayoutGrid,
+        path: '/dashboard/warehouse',
+        subItems: warehouseSubItems
+      }
+    );
+  }
+
+  // Hierarchy for other warehouses or all for staff
+
+
+  if (user?.role === 'staff') {
+    menuItems.push({
+        title: 'Staff Portal',
+        icon: Box,
+        path: '/staff',
+    });
+  }
+
+  return menuItems;
 }
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [expandedMenus, setExpandedMenus] = useState({});
   const pathname = usePathname();
-  const { logout } = useAuth();
-  const wms = useWms();
-  const menuItems = buildMenuItems(Boolean(wms?.state?.isConfigured));
- console.log(wms.state)
+  const { user, logout, loading } = useAuth();
+  const { state, fetchWarehouses, openUpdateModal, closeUpdateModal } = useWms();
 
   const toggleMenu = (title) => {
     if (collapsed) setCollapsed(false);
@@ -93,6 +113,14 @@ export default function Sidebar() {
       [title]: !prev[title]
     }));
   };
+
+  useEffect(() => {
+    fetchWarehouses();
+  }, []);
+
+  if (loading) return null;
+
+  const menuItems = buildMenuItems(user, state, openUpdateModal);
 
   return (
     <div 
@@ -114,7 +142,7 @@ export default function Sidebar() {
         <ul className="space-y-2 px-2">
           {menuItems.map((item) => {
             const isActive = pathname === item.path || pathname.startsWith(item.path + '/');
-            const isMenuOpen = expandedMenus[item.title] || isActive; // Auto-expand if active
+            const isMenuOpen = expandedMenus[item.title] ?? isActive; // Auto-expand if active, but allow manual close
 
             return (
               <li key={item.title}>
@@ -143,14 +171,23 @@ export default function Sidebar() {
                   <ul className="mt-1 ml-4 space-y-1 border-l-2 border-slate-700 pl-2">
                     {item.subItems.map((sub, idx) => (
                       <li key={idx}>
-                        <Link 
-                          href={sub.path}
-                          className={`block p-2 text-sm rounded hover:text-white transition-colors ${
-                            pathname === sub.path ? 'text-indigo-400 font-medium' : 'text-slate-400'
-                          }`}
-                        >
-                          {sub.name}
-                        </Link>
+                        {sub.onClick ? (
+                          <button
+                            onClick={sub.onClick}
+                            className="w-full text-left block p-2 text-sm rounded hover:text-white transition-colors text-slate-400"
+                          >
+                            {sub.name}
+                          </button>
+                        ) : (
+                          <Link 
+                            href={sub.path}
+                            className={`block p-2 text-sm rounded hover:text-white transition-colors ${
+                              pathname === sub.path ? 'text-indigo-400 font-medium' : 'text-slate-400'
+                            }`}
+                          >
+                            {sub.name}
+                          </Link>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -172,6 +209,15 @@ export default function Sidebar() {
           {!collapsed && <span>Logout</span>}
         </button>
       </div>
+      {state.isUpdateModalOpen && (
+        <WarehouseWizard 
+          key={state.activeUpdateId}
+          isUpdate={true} 
+          warehouseId={state.activeUpdateId} 
+          onClose={closeUpdateModal}
+          onComplete={closeUpdateModal}
+        />
+      )}
     </div>
   );
 }

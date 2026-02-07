@@ -18,17 +18,23 @@ function Rack({ shelf, highlight }) {
     shelf.location_z + h / 2, 
     shelf.location_y + d / 2
   ];
-  const rotationY = shelf.facing === 'negative' ? Math.PI : 0;
+  // Convert orientation_angle (degrees) to radians. Fallback to 'facing' for backward compatibility.
+  let rotationY = 0;
+  if (typeof shelf.orientation_angle === 'number') {
+    rotationY = (shelf.orientation_angle * Math.PI) / 180;
+  } else if (shelf.facing === 'negative') {
+    rotationY = Math.PI;
+  }
 
   return (
     <group position={pos} rotation={[0, rotationY, 0]}>
       <ShelfFactory 
-        type={shelf.type} 
+        type={shelf.shelf_type || shelf.type} 
         width={w} 
         height={h} 
         depth={d} 
         highlight={highlight}
-        isBottom={shelf.level_code === 'L1'}
+        isBottom={shelf.level_num === 1}
       />
 
       {/* Text Label on top of this level */}
@@ -54,22 +60,22 @@ function Rack({ shelf, highlight }) {
             anchorX="center" 
             anchorY="middle"
         >
-            {shelf.name}
+            {shelf.name || shelf.shelf_code}
         </Text>
       )}
     </group>
   );
 }
 
-function Stairs({ x, y, width = 2, depth = 2, floorName }) {
+function Area({ x, y, width = 2, depth = 2, height = 3, label = 'Area' }) {
     return (
-        <group position={[x + width/2, 1.5, y + depth/2]}>
+        <group position={[x + width/2, height/2, y + depth/2]}>
             <mesh position={[0, 0, 0]}>
-                <boxGeometry args={[width, 3, depth]} />
+                <boxGeometry args={[width, height, depth]} />
                 <meshStandardMaterial color="#ef4444" opacity={0.8} transparent />
             </mesh>
-             <Text position={[0, 2, 0]} fontSize={0.5} color="white" anchorX="center" anchorY="middle">
-                STAIRS
+             <Text position={[0, height/2 + 0.5, 0]} fontSize={0.5} color="white" anchorX="center" anchorY="middle">
+                {label}
             </Text>
         </group>
     )
@@ -113,15 +119,17 @@ export default function ShelfScene({ selectedShelfId, floorId }) {
         <Rack key={s.id} shelf={s} highlight={s.id === selectedShelfId} />
       ))}
       
-      {currentFloor && (
-          <Stairs 
-            x={currentFloor.stairs_location.x} 
-            y={currentFloor.stairs_location.y} 
-            width={currentFloor.stair_width}
-            depth={currentFloor.stair_depth}
-            floorName={currentFloor.name} 
+      {currentFloor && Array.isArray(currentFloor.areas) && currentFloor.areas.map((ar, idx) => (
+          <Area 
+            key={idx}
+            x={ar.location_x || ar.x || 0} 
+            y={ar.location_y || ar.y || 0} 
+            width={ar.width || currentFloor.area_width || 2}
+            depth={ar.depth || currentFloor.area_depth || 2}
+            height={ar.height || 3}
+            label={ar.area_name} 
           />
-      )}
+      ))}
 
       <OrbitControls makeDefault enableDamping dampingFactor={0.08} />
     </Canvas>

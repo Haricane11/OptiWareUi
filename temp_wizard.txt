@@ -1,0 +1,20 @@
+﻿                   <div key={i} className="grid grid-cols-2 gap-4 p-3 border border-gray-200 rounded-lg">
+                     <div className="col-span-2 text-sm font-medium text-gray-700">Floor {i }</div>
+                     <div>
+                       <label className="block text-xs font-medium text-gray-600 mb-1">Width (meters)</label>
+                       <input
+                         type="number"
+                         value={formData.widthM}
+                         disabled
+                         className="w-full p-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-600"
+                       />
+                       <p className="text-xs text-gray-500 mt-1">Width is fixed to warehouse width.</p>
+                     </div>
+                     <div>
+                       <label className="block text-xs font-medium text-gray-600 mb-1">Height (meters)</label>
+                       <input
+                         type="number"
+                         value={formData.floorHeights[i] ?? (() => {
+                           const base = formData.numFloors > 1 ? (formData.heightM / formData.numFloors) : formData.heightM;
+                           if (Number.isInteger(base)) return base;
+                           const nearTenth = Math.abs(base * 10 - Math.round(base * 10)) < 1e-9;
