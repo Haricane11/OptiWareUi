@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
 import { useState, useRef, useEffect} from 'react';
@@ -103,7 +104,16 @@ const DraggableShelf = ({ shelf, PPM, handleStop, setIsDragging, isDragging, set
              height: `${shelf.depth * PPM}px`
           }}
         >
-          <span className="text-[10px] font-bold text-gray-600 pointer-events-none select-none">{shelf.name}</span>
+          <span className="text-[8px] font-bold text-gray-600 pointer-events-none select-none text-center leading-tight">
+            {shelf.shelf_code?.includes('-') ? (
+              <>
+                <div>{shelf.shelf_code.split('-').slice(0, 3).join('-')}</div>
+                <div className="text-[7px] text-indigo-600">#{shelf.bin_num}</div>
+              </>
+            ) : (
+              shelf.shelf_code || shelf.name
+            )}
+          </span>
         </div>
     </Draggable>
   );
@@ -168,18 +178,21 @@ function WarehouseContent() {
   const [selectedShelf, setSelectedShelf] = useState(null);
   const { state, updateShelfPosition, updateAreaPosition, updateZonePosition, updateZoneDimensions, updateAreaDimensions, updateAreaLabel, findNextAvailablePosition, setState, removeZone, addArea, removeArea, addZone } = useWms();
   const [selectedArea, setSelectedArea] = useState(false);
- const [currentFloorId, setCurrentFloorId] = useState(() => {
-  // 1. Find the user's warehouse
-  const myWh = state.warehouses?.find(wh => wh.id === user?.warehouse_id);
-  
-  if (myWh?.floors?.length > 0) {
-    // 2. Look for floor_number 0, otherwise take the first floor available
-    const groundFloor = myWh.floors.find(f => f.floor_number === 0);
-    return groundFloor ? groundFloor.id : myWh.floors[0].id;
-  }
-  
-  return null; 
-});
+  const [currentFloorId, setCurrentFloorId] = useState(null);
+
+  useEffect(() => {
+    // When warehouses or user loads, find the default floor (Floor 0)
+    if (state.warehouses?.length > 0 && user?.warehouse_id && !currentFloorId) {
+      const myWh = state.warehouses.find(wh => wh.id === user.warehouse_id);
+      if (myWh?.floors?.length > 0) {
+        // Priority 1: floor_number 0, Priority 2: first available floor
+        const floorZero = myWh.floors.find(f => f.floor_number === 0) || myWh.floors[0];
+        if (floorZero) {
+          setCurrentFloorId(floorZero.id);
+        }
+      }
+    }
+  }, [state.warehouses, user, currentFloorId]); 
   const [isDragging, setIsDragging] = useState(false);
   const [isZoneModalOpen, setIsZoneModalOpen] = useState(false);
   const [newZoneData, setNewZoneData] = useState({ name: '', type: 'General' });
@@ -195,6 +208,7 @@ function WarehouseContent() {
     }
     return (h % 50) + 1;
   };
+  
   const canvasRef = useRef(null);
   const [zoneHover, setZoneHover] = useState({ show: false, x: 0, y: 0, name: '', label: '' });
   const handleZoneMouseMove = (e, zone) => {
@@ -207,10 +221,13 @@ function WarehouseContent() {
   const clearZoneHover = () => setZoneHover(prev => ({ ...prev, show: false }));
 
   // If not configured or explicitly editing, show Wizard
-  if (!user || !state.isConfigured || editMode) {
+  // We show the wizard if the current user doesn't have a warehouse_id associated with them.
+  const userHasWarehouse = user?.warehouse_id;
+
+  if (!user || !userHasWarehouse || editMode) {
      if (!user) return null; // Wait for redirect
      return <WarehouseWizard onClose={() => {
-        if (state.isConfigured) router.push('/dashboard/warehouse');
+        if (userHasWarehouse) router.push('/dashboard/warehouse');
         else router.push('/dashboard');
      }} />;
   }
@@ -243,6 +260,8 @@ function WarehouseContent() {
              r1.y + r1.h <= r2.y || 
              r1.y >= r2.y + r2.h);
   };
+
+  
 
   const handleResizeMove = (e) => {
     if (!resizingRef.current) return;
@@ -544,7 +563,7 @@ function WarehouseContent() {
                >
                  {/* Canvas Label */}
                  <div className="absolute -top-6 left-0 text-xs text-gray-400 font-mono">
-                    Warehouse Bounds ({state.warehouseDims.widthM}m x {state.warehouseDims.depthM}m)
+                    Warehouse Bounds ({(state.warehouseDims.widthM || 0).toFixed(1)}m x {(state.warehouseDims.depthM || 0).toFixed(1)}m)
                  </div>
 
                  {/* Zones with Nested Shelves */}
@@ -647,12 +666,20 @@ function WarehouseContent() {
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-gray-50 p-3 rounded-lg">
-                    <span className="block text-xs text-gray-500">Max Weight</span>
-                    <span className="font-bold text-gray-800">{selectedShelf.maxWeight}</span>
+                    <span className="block text-xs text-gray-500">Width</span>
+                    <span className="font-bold text-gray-800">{(selectedShelf.width || 0).toFixed(1)}m</span>
                   </div>
                   <div className="bg-gray-50 p-3 rounded-lg">
                     <span className="block text-xs text-gray-500">Depth</span>
-                    <span className="font-bold text-gray-800">{selectedShelf.depth}m</span>
+                    <span className="font-bold text-gray-800">{(selectedShelf.depth || 0).toFixed(1)}m</span>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded-lg">
+                    <span className="block text-xs text-gray-500">Height</span>
+                    <span className="font-bold text-gray-800">{(selectedShelf.height || 0).toFixed(1)}m</span>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded-lg">
+                    <span className="block text-xs text-gray-500">Max Weight</span>
+                    <span className="font-bold text-gray-800">{selectedShelf.max_weight || selectedShelf.maxWeight}kg</span>
                   </div>
                   <div className="bg-gray-50 p-3 rounded-lg">
                     <span className="block text-xs text-gray-500">Levels</span>
@@ -838,7 +865,7 @@ function WarehouseContent() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Width (X, meters)</label>
                   <input 
                     type="number" step="0.1" 
-                    value={zoneEditor.width}
+                    value={(zoneEditor.width || 0)}
                     onChange={e => setZoneEditor({ ...zoneEditor, width: e.target.value })}
                     className="w-full p-2 border border-gray-300 rounded-lg"
                   />
@@ -847,7 +874,7 @@ function WarehouseContent() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Depth (Y, meters)</label>
                   <input 
                     type="number" step="0.1" 
-                    value={zoneEditor.depth}
+                    value={(zoneEditor.depth || 0)}
                     onChange={e => setZoneEditor({ ...zoneEditor, depth: e.target.value })}
                     className="w-full p-2 border border-gray-300 rounded-lg"
                   />

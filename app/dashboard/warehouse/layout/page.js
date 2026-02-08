@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -45,11 +46,14 @@ export default function LayoutEntryPage() {
     bay_depth: 1.2,
     level_height: 0.8,
     aisle_gap: 3.0,
+    bins_per_level: 1,
+    bay_max_weight: 500,
     shelf_type: 'Standard Rack'
   }), []);
 
   const [bulkData, setBulkData] = useState(initialBulkState);
   const [gapEdited, setGapEdited] = useState(false);
+  const [userEdited, setUserEdited] = useState(false);
 
   const GAP_DEFAULTS = {
     'SELECTIVE_PALLET': 3.5,
@@ -65,7 +69,7 @@ export default function LayoutEntryPage() {
 
   // Logic to repopulate form when Zone is selected
   useEffect(() => {
-    if (!selectedZone) return;
+    if (!selectedZone || userEdited) return;
 
     const zoneShelves = state.shelves.filter(s => s.zone_id === selectedZone);
     if (zoneShelves.length > 0) {
@@ -95,15 +99,19 @@ export default function LayoutEntryPage() {
             inferredGap = parseFloat(rawGap.toFixed(1));
         }
 
+        const maxBin = Math.max(...zoneShelves.map(s => s.bin_num || 1));
+        
         setBulkData({
             start_aisle: minAisle,
             num_aisles: numAisles,
             bays_per_aisle: maxBay,
             levels_per_bay: maxLevel,
-            bay_width: first.width,
-            bay_depth: first.depth,
-            level_height: first.height,
+            bay_width: parseFloat((first.width * maxBin).toFixed(1)),
+            bay_depth: parseFloat((first.depth || 0).toFixed(1)),
+            level_height: parseFloat((first.height || 0).toFixed(1)),
             aisle_gap: inferredGap || 3.0,
+            bins_per_level: maxBin,
+            bay_max_weight: (first.max_weight || 500) * maxBin,
             shelf_type: first.shelf_type || first.type
         });
         setGapEdited(false);
@@ -111,7 +119,7 @@ export default function LayoutEntryPage() {
         setBulkData(initialBulkState);
         setGapEdited(false);
     }
-  }, [selectedZone, state.shelves, initialBulkState]);
+  }, [selectedZone, state.shelves, initialBulkState, userEdited]);
 
   useEffect(() => {
     if (selectedWarehouse && !selectedFloor) {
@@ -130,6 +138,7 @@ export default function LayoutEntryPage() {
 
   const handleBulkChange = (e) => {
     const { name, value } = e.target;
+    setUserEdited(true);
     
     if (name === 'aisle_gap') {
         setGapEdited(true);
@@ -161,8 +170,19 @@ export default function LayoutEntryPage() {
     const newShelves = [];
     let { 
       start_aisle, num_aisles, bays_per_aisle, levels_per_bay, 
-      bay_width, bay_depth, level_height, aisle_gap, shelf_type
+      bay_width, bay_depth, level_height, aisle_gap, shelf_type, bins_per_level, bay_max_weight
     } = bulkData;
+    
+    // Weight separate for bin is only for specific types
+    const isMultiBinType = ['BIN_SHELVING', 'CARTON_FLOW', 'SELECTIVE_PALLET'].includes(shelf_type);
+    
+    if (!isMultiBinType) {
+      bins_per_level = 1;
+    }
+
+    const binMaxWeight = isMultiBinType 
+      ? (bay_max_weight / bins_per_level) 
+      : bay_max_weight;
 
     const zoneObj = state.zones.find(z => z.id === selectedZone);
     const zoneLeft = (zoneObj?.location_x || 0);
@@ -213,9 +233,35 @@ export default function LayoutEntryPage() {
         for (let l = 0; l < levels_per_bay; l++) {
           const levelNum = l + 1;
           const levelZ = l * level_height;
-          if ((bayX + bay_width <= zoneRight) && (topRowY + bay_depth <= zoneBottom)) {
-            if (!overlapsAny(bayX, topRowY, levelZ, bay_width, bay_depth, level_height, obstacles) && !overlapsAny(bayX, topRowY, levelZ, bay_width, bay_depth, level_height, newShelves)) {
-              newShelves.push({ zone_id: selectedZone, shelf_code: `A${aisleNum}-B${bayNum}-L${levelNum}`, shelf_type, aisle_num: aisleNum, bay_num: bayNum, level_num: levelNum, bin_num: 1, location_x: bayX, location_y: topRowY, location_z: levelZ, width: bay_width, height: level_height, depth: bay_depth, max_weight: 500, orientation_angle: 0, status: 'active' });
+          
+          const binWidth = bay_width / bins_per_level;
+          for (let bin = 1; bin <= bins_per_level; bin++) {
+            const binX = bayX + (bin - 1) * binWidth;
+            const shelfCode = bins_per_level > 1 
+              ? `A${aisleNum}-B${bayNum}-L${levelNum}-${String(bin).padStart(2, '0')}`
+              : `A${aisleNum}-B${bayNum}-L${levelNum}`;
+
+            if ((binX + binWidth <= zoneRight) && (topRowY + bay_depth <= zoneBottom)) {
+              if (!overlapsAny(binX, topRowY, levelZ, binWidth, bay_depth, level_height, obstacles) && !overlapsAny(binX, topRowY, levelZ, binWidth, bay_depth, level_height, newShelves)) {
+                newShelves.push({ 
+                  zone_id: selectedZone, 
+                  shelf_code: shelfCode,
+                  shelf_type, 
+                  aisle_num: aisleNum, 
+                  bay_num: bayNum, 
+                  level_num: levelNum, 
+                  bin_num: bin, 
+                  location_x: binX, 
+                  location_y: topRowY, 
+                  location_z: levelZ, 
+                  width: binWidth, 
+                  height: level_height, 
+                  depth: bay_depth, 
+                  max_weight: binMaxWeight, 
+                  orientation_angle: 0, 
+                  status: 'active' 
+                });
+              }
             }
           }
         }
@@ -228,9 +274,35 @@ export default function LayoutEntryPage() {
         for (let l = 0; l < levels_per_bay; l++) {
           const levelNum = l + 1;
           const levelZ = l * level_height;
-          if ((bayX + bay_width <= zoneRight) && (bottomRowY + bay_depth <= zoneBottom)) {
-            if (!overlapsAny(bayX, bottomRowY, levelZ, bay_width, bay_depth, level_height, obstacles) && !overlapsAny(bayX, bottomRowY, levelZ, bay_width, bay_depth, level_height, newShelves)) {
-              newShelves.push({ zone_id: selectedZone, shelf_code: `A${aisleNum}-B${bayNum}-L${levelNum}`, shelf_type, aisle_num: aisleNum, bay_num: bayNum, level_num: levelNum, bin_num: 1, location_x: bayX, location_y: bottomRowY, location_z: levelZ, width: bay_width, height: level_height, depth: bay_depth, max_weight: 500, orientation_angle: 180, status: 'active' });
+          
+          const binWidth = bay_width / bins_per_level;
+          for (let bin = 1; bin <= bins_per_level; bin++) {
+            const binX = bayX + (bin - 1) * binWidth;
+            const shelfCode = bins_per_level > 1 
+              ? `A${aisleNum}-B${bayNum}-L${levelNum}-${String(bin).padStart(2, '0')}`
+              : `A${aisleNum}-B${bayNum}-L${levelNum}`;
+
+            if ((binX + binWidth <= zoneRight) && (bottomRowY + bay_depth <= zoneBottom)) {
+              if (!overlapsAny(binX, bottomRowY, levelZ, binWidth, bay_depth, level_height, obstacles) && !overlapsAny(binX, bottomRowY, levelZ, binWidth, bay_depth, level_height, newShelves)) {
+                newShelves.push({ 
+                  zone_id: selectedZone, 
+                  shelf_code: shelfCode,
+                  shelf_type, 
+                  aisle_num: aisleNum, 
+                  bay_num: bayNum, 
+                  level_num: levelNum, 
+                  bin_num: bin, 
+                  location_x: binX, 
+                  location_y: bottomRowY, 
+                  location_z: levelZ, 
+                  width: binWidth, 
+                  height: level_height, 
+                  depth: bay_depth, 
+                  max_weight: binMaxWeight, 
+                  orientation_angle: 180, 
+                  status: 'active' 
+                });
+              }
             }
           }
         }
@@ -239,7 +311,17 @@ export default function LayoutEntryPage() {
     }
 
     const success = await saveBulkShelves(selectedZone, newShelves);
-    if (success) setShowForm(false); else alert("Failed to save layout to database.");
+    if (success) {
+      setShowForm(false);
+      setUserEdited(false);
+    } else {
+      alert("Failed to save layout to database.");
+    }
+  };
+
+  const handleZoneSelect = (zoneId) => {
+    setSelectedZone(zoneId);
+    setUserEdited(false);
   };
 
   return (
@@ -302,7 +384,7 @@ export default function LayoutEntryPage() {
                             {state.zones.filter(z => z.floor_id === floor.id).map((zone) => (
                               <div 
                                 key={zone.id}
-                                onClick={() => setSelectedZone(zone.id)}
+                                onClick={() => handleZoneSelect(zone.id)}
                                 className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors ${selectedZone === zone.id ? 'bg-indigo-100 text-indigo-800' : 'hover:bg-gray-50 text-gray-500'}`}
                               >
                                 <Box size={12} />
@@ -382,6 +464,13 @@ export default function LayoutEntryPage() {
                     </select>
                   </div>
                   
+                  {['BIN_SHELVING', 'CARTON_FLOW', 'SELECTIVE_PALLET'].includes(bulkData.shelf_type) && (
+                    <div className="col-span-6 md:col-span-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Bins per Level</label>
+                      <input type="number" name="bins_per_level" value={bulkData.bins_per_level} onChange={handleBulkChange} disabled={readonly} className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border disabled:bg-gray-100" min="1" required />
+                    </div>
+                  )}
+                  
                   <div className="col-span-12 border-b border-gray-200 pb-2 mb-2 mt-4">
                     <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Dimensions & Spacing (Meters)</span>
                   </div>
@@ -401,6 +490,17 @@ export default function LayoutEntryPage() {
                   <div className="col-span-6 md:col-span-3">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Aisle Gap</label>
                     <input type="number" step="0.1" name="aisle_gap" value={bulkData.aisle_gap} onChange={handleBulkChange} disabled={readonly} className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border disabled:bg-gray-100" />
+                  </div>
+                  <div className="col-span-6 md:col-span-3">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {['BIN_SHELVING', 'CARTON_FLOW', 'SELECTIVE_PALLET'].includes(bulkData.shelf_type) ? 'Bay Max Weight (kg)' : 'Max Weight (kg)'}
+                    </label>
+                    <input type="number" name="bay_max_weight" value={bulkData.bay_max_weight} onChange={handleBulkChange} disabled={readonly} className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border disabled:bg-gray-100" min="0" required />
+                    {['BIN_SHELVING', 'CARTON_FLOW', 'SELECTIVE_PALLET'].includes(bulkData.shelf_type) && bulkData.bins_per_level > 1 && (
+                      <p className="text-[10px] text-indigo-600 mt-1">
+                        Weight separate for bin: {(bulkData.bay_max_weight / bulkData.bins_per_level).toFixed(1)}kg each
+                      </p>
+                    )}
                   </div>
 
                   {/* Validation Warnings */}
@@ -464,7 +564,7 @@ export default function LayoutEntryPage() {
                         <tr key={shelf.shelf_code || idx} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{shelf.shelf_code}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Aisle {shelf.aisle_num}, Bay {shelf.bay_num}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{shelf.width} x {shelf.depth} x {shelf.height}m</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{(shelf.width || 0).toFixed(1)} x {(shelf.depth || 0).toFixed(1)} x {(shelf.height || 0).toFixed(1)}m</td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{shelf.max_weight}kg</td>
                           <td className="px-6 py-4 text-right">
                             {!readonly && (

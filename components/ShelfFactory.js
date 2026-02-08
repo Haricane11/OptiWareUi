@@ -94,8 +94,6 @@ export default function ShelfFactory({ type, width, height, depth, highlight, is
 
     case "CARTON_FLOW": {
         const tilt = 6 * (Math.PI / 180); 
-        const laneWidth = 0.3;
-        const numLanes = Math.max(1, Math.floor(width / laneWidth));
         
         return (
             <group>
@@ -103,23 +101,14 @@ export default function ShelfFactory({ type, width, height, depth, highlight, is
                 <FrameBox color={frameColor} args={[0.05, height, depth]} position={[width/2 - 0.025, 0, 0]} /> 
 
                 <group rotation={[tilt, 0, 0]}>
-                    {Array.from({ length: numLanes }).map((_, laneIdx) => {
-                        const laneStep = (width - 0.1) / numLanes;
-                        const laneX = - (width - 0.1) / 2 + laneStep/2 + (laneIdx * laneStep);
-                        
-                        return (
-                            <group key={laneIdx} position={[laneX, 0, 0]}>
-                                <Box args={[laneStep - 0.02, 0.04, depth]} position={[0, 0, 0]}>
-                                    <meshStandardMaterial color="#475569" />
-                                </Box>
-                                {Array.from({ length: 5 }).map((_, rI) => (
-                                     <Box key={rI} args={[laneStep - 0.04, 0.02, 0.05]} position={[0, 0.03, -depth/2 + (depth/5)*(rI + 0.5)]}>
-                                        <meshStandardMaterial color="#94a3b8" />
-                                     </Box>
-                                ))}
-                            </group>
-                        );
-                    })}
+                    <Box args={[width - 0.1, 0.04, depth]} position={[0, 0, 0]}>
+                        <meshStandardMaterial color="#475569" />
+                    </Box>
+                    {Array.from({ length: 5 }).map((_, rI) => (
+                         <Box key={rI} args={[width - 0.14, 0.02, 0.05]} position={[0, 0.03, -depth/2 + (depth/5)*(rI + 0.5)]}>
+                            <meshStandardMaterial color="#94a3b8" />
+                         </Box>
+                    ))}
                     <Box args={[width - 0.1, 0.1, 0.02]} position={[0, 0.05, depth/2]}>
                         <meshStandardMaterial color="#ef4444" />
                     </Box>
@@ -130,8 +119,6 @@ export default function ShelfFactory({ type, width, height, depth, highlight, is
 
     case "BIN_SHELVING": {
        const bThick = 0.02;
-       const binWidth = 0.4;
-       const numBins = Math.max(1, Math.round(width / binWidth));
        
        return (
          <group>
@@ -140,14 +127,6 @@ export default function ShelfFactory({ type, width, height, depth, highlight, is
             <FrameBox color={frameColor} args={[bThick, height, depth]} position={[width/2 - bThick/2, 0, 0]} />
             <FrameBox color={frameColor} args={[width, bThick, depth]} position={[0, -height/2 + bThick/2, 0]} />
             <FrameBox color={frameColor} args={[width, bThick, depth]} position={[0, height/2 - bThick/2, 0]} />
-
-             {Array.from({ length: numBins - 1 }).map((_, i) => {
-                 const step = width / numBins;
-                 const xPos = -width/2 + step * (i + 1);
-                 return (
-                     <FrameBox color={frameColor} key={i} args={[bThick, height - 0.1, depth - 0.05]} position={[xPos, 0, 0]} />
-                 )
-             })}
          </group>
        );
     }

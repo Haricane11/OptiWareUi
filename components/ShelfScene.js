@@ -37,32 +37,17 @@ function Rack({ shelf, highlight }) {
         isBottom={shelf.level_num === 1}
       />
 
-      {/* Text Label on top of this level */}
-      {/* Text Label Logic */}
-      {shelf.type === 'BULK_FLOOR_SPACE' ? (
-        // Bulk Floor: Horizontal on top surface
-        <Text 
-            position={[0, h / 2 + 0.01, 0]} 
-            rotation={[-Math.PI / 2, 0, 0]} 
-            fontSize={0.25} // Slightly larger for floor
-            color="black" 
-            anchorX="center" 
-            anchorY="middle"
-        >
-            {shelf.name}
-        </Text>
-      ) : (
-        // Racks: Front-facing on the face
-        <Text 
-            position={[0, 0, d / 2 + 0.05]} 
-            fontSize={0.15} 
-            color="black" 
-            anchorX="center" 
-            anchorY="middle"
-        >
-            {shelf.name || shelf.shelf_code}
-        </Text>
-      )}
+      {/* Text Label vertically on the front surface */}
+      <Text 
+          position={[0, 0, d / 2 + 0.02]} 
+          fontSize={0.06} 
+          color="#1e293b" 
+          anchorX="center" 
+          anchorY="middle"
+          maxWidth={w * 0.9}
+      >
+          {shelf.shelf_code || shelf.name}
+      </Text>
     </group>
   );
 }

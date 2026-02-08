@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 
 export default function WarehouseWizard({ onComplete, onClose, isUpdate = false, warehouseId = null }) {
   const { state, setState, fetchWarehouses, updateWarehouseMetadata } = useWms();
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const router = useRouter();
   const [step, setStep] = useState(1);
   
@@ -187,6 +187,11 @@ export default function WarehouseWizard({ onComplete, onClose, isUpdate = false,
       }
       const result = await res.json();
       console.log("Create result:", result);
+
+      // Update local user state with new warehouse_id
+      if (result.warehouse_id) {
+        updateUser({ warehouse_id: result.warehouse_id });
+      }
 
       // Refresh all data from backend to ensure state is in sync
       await fetchWarehouses();
