@@ -30,10 +30,10 @@ function buildMenuItems(user, state, openUpdateModal) {
         name: 'Update Warehouse', 
         onClick: () => openUpdateModal(ownWarehouse.id) 
       });
-      warehouseSubItems.push({ name: 'Shelves Layout', path: `/dashboard/warehouse/layout?warehouseId=${ownWarehouse.id}` });
-      warehouseSubItems.push({ name: '3D View', path: `/dashboard/warehouse?warehouseId=${ownWarehouse.id}&view=3d` });
+      warehouseSubItems.push({ name: 'Shelves Layout', path: `/manager/warehouse/layout?warehouseId=${ownWarehouse.id}` });
+      warehouseSubItems.push({ name: '3D View', path: `/manager/warehouse?warehouseId=${ownWarehouse.id}&view=3d` });
     } else {
-      warehouseSubItems.push({ name: 'Create Warehouse', path: '/dashboard/warehouse' });
+      warehouseSubItems.push({ name: 'Create Warehouse', path: '/manager/warehouse' });
     }
   }
 
@@ -79,7 +79,7 @@ function buildMenuItems(user, state, openUpdateModal) {
       {
         title: 'Warehouse Setup',
         icon: LayoutGrid,
-        path: '/dashboard/warehouse',
+        path: '/manager/warehouse',
         subItems: warehouseSubItems
       }
     );

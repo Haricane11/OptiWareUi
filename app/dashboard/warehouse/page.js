@@ -45,7 +45,7 @@ const DraggableZone = ({ zone, PPM, handleStop, startResize, removeZone, childre
           height: `${(zone.depth || 5) * PPM}px`,
           backgroundColor: zone.color ? `${zone.color}40` : '#e5e7eb40', // 40 = 25% opacity
           borderColor: zone.color || '#9ca3af',
-          zIndex: 0
+          zIndex: 10
         }}
       >
         <span className="text-xs font-bold text-gray-700 select-none bg-white/50 px-1 rounded">{zone.zone_name}</span>
@@ -119,10 +119,18 @@ const DraggableShelf = ({ shelf, PPM, handleStop, setIsDragging, isDragging, set
   );
 };
 
-const DraggableArea = ({ floorId, area, index, PPM, handleStop, setIsDragging, onSelect, removeArea }) => {
+const DraggableArea = ({ floorId, area, index, PPM, handleStop, setIsDragging, onSelect, removeArea, startResize }) => {
     const nodeRef = useRef(null);
     const width = (area.width || 2) * PPM;
     const depth = (area.depth || 2) * PPM;
+    const isPassable = area.is_passable ?? true;
+
+    // Green for passable areas, Red for obstacles
+    const bgColor = isPassable ? 'bg-emerald-500/40' : 'bg-rose-500/80';
+    const borderColor = isPassable ? 'border-emerald-600' : 'border-rose-700';
+    // Areas should be clickable even when overlapping zones (Zones are z-10)
+    // Passable areas go above zones (z-20), obstacles stay on top (z-40)
+    const zIndex = isPassable ? 'z-20' : 'z-40';
 
     return (
         <Draggable
@@ -136,12 +144,15 @@ const DraggableArea = ({ floorId, area, index, PPM, handleStop, setIsDragging, o
             <div 
                 ref={nodeRef}
                 onClick={(e) => { e.stopPropagation(); onSelect(); }}
-                className="absolute bg-red-500/90 border-2 border-red-700 text-white flex items-center justify-center cursor-move shadow-md z-30 rounded-sm hover:border-white group"
+                className={`absolute ${bgColor} border-2 ${borderColor} text-white flex items-center justify-center cursor-move shadow-md ${zIndex} rounded-sm hover:border-white group transition-colors`}
                 style={{ width: `${width}px`, height: `${depth}px` }}
             >
                 <div className="text-center leading-tight">
-                    <span className="text-[10px] font-bold pointer-events-none select-none block uppercase">{area.area_name || 'AREA'}</span>
-                    <span className="text-[8px] opacity-80 pointer-events-none select-none block">
+                    <span className="text-[10px] font-bold pointer-events-none select-none block uppercase drop-shadow-md">{area.area_name || 'AREA'}</span>
+                    <span className="text-[8px] opacity-90 pointer-events-none select-none block drop-shadow-sm font-medium">
+                        {area.usage_category?.replace('_', ' ') || 'GENERAL'}
+                    </span>
+                    <span className="text-[8px] opacity-70 pointer-events-none select-none block">
                         {(width/PPM).toFixed(1)}x{(depth/PPM).toFixed(1)}m
                     </span>
                 </div>
@@ -159,6 +170,12 @@ const DraggableArea = ({ floorId, area, index, PPM, handleStop, setIsDragging, o
                 >
                     <X size={10} />
                 </button>
+
+                {/* Resize Handle */}
+                <div 
+                    className="absolute bottom-0 right-0 w-3 h-3 cursor-nwse-resize bg-white/20 hover:bg-white/50 rounded-tl-sm transition-colors"
+                    onMouseDown={(e) => startResize(e, { ...area, floorId, index }, 'area')}
+                />
             </div>
         </Draggable>
     );
@@ -176,7 +193,7 @@ function WarehouseContent() {
 
   const [viewMode, setViewMode] = useState('2d'); // '2d' | '3d'
   const [selectedShelf, setSelectedShelf] = useState(null);
-  const { state, updateShelfPosition, updateAreaPosition, updateZonePosition, updateZoneDimensions, updateAreaDimensions, updateAreaLabel, findNextAvailablePosition, setState, removeZone, addArea, removeArea, addZone } = useWms();
+  const { state, updateShelfPosition, updateAreaPosition, updateZonePosition, updateZoneDimensions, updateAreaDimensions, updateAreaProperty, updateAreaLabel, findNextAvailablePosition, setState, removeZone, addArea, removeArea, addZone } = useWms();
   const [selectedArea, setSelectedArea] = useState(false);
   const [currentFloorId, setCurrentFloorId] = useState(null);
 
@@ -224,12 +241,16 @@ function WarehouseContent() {
   // We show the wizard if the current user doesn't have a warehouse_id associated with them.
   const userHasWarehouse = user?.warehouse_id;
 
-  if (!user || !userHasWarehouse || editMode) {
+  if (!user || !userHasWarehouse || (editMode && userHasWarehouse)) {
      if (!user) return null; // Wait for redirect
-     return <WarehouseWizard onClose={() => {
-        if (userHasWarehouse) router.push('/dashboard/warehouse');
-        else router.push('/dashboard');
-     }} />;
+     return <WarehouseWizard 
+        isUpdate={editMode && userHasWarehouse}
+        warehouseId={user?.warehouse_id}
+        onClose={() => {
+          if (userHasWarehouse) router.push('/dashboard/warehouse');
+          else router.push('/dashboard');
+        }} 
+     />;
   }
   // Filter shelves for 2D view based on current floor
   const currentFloorZones = state.zones.filter(z => z.floor_id === currentFloorId);
@@ -241,14 +262,17 @@ function WarehouseContent() {
   const PPM = 30;
 
 
-  const startResize = (e, zone) => {
+  const startResize = (e, item, type = 'zone') => {
     e.stopPropagation();
     resizingRef.current = {
-      zoneId: zone.id,
+      type,
+      id: type === 'zone' ? item.id : null,
+      floorId: type === 'area' ? item.floorId : null,
+      areaIndex: type === 'area' ? item.index : null,
       startX: e.clientX,
       startY: e.clientY,
-      startWidth: zone.width * PPM,
-      startHeight: zone.depth * PPM
+      startWidth: (item.width || 0) * PPM,
+      startHeight: (item.depth || 0) * PPM
     };
     document.addEventListener('mousemove', handleResizeMove);
     document.addEventListener('mouseup', stopResize);
@@ -265,7 +289,7 @@ function WarehouseContent() {
 
   const handleResizeMove = (e) => {
     if (!resizingRef.current) return;
-    const { zoneId, startX, startY, startWidth, startHeight } = resizingRef.current;
+    const { type, id, floorId, areaIndex, startX, startY, startWidth, startHeight } = resizingRef.current;
     const deltaX = e.clientX - startX;
     const deltaY = e.clientY - startY;
     
@@ -277,37 +301,64 @@ function WarehouseContent() {
     const snappedWidth = Math.round(newPixelWidth / snap) * snap;
     const snappedHeight = Math.round(newPixelHeight / snap) * snap;
 
-    // Check Area Collision during resize
-    const floor = state.floors.find(f => f.id === currentFloorId);
-    if (floor) {
-        // Current Zone Position (static during resize)
-        const zone = state.zones.find(z => z.id === zoneId);
-        if (zone && Array.isArray(floor.areas)) {
+    if (type === 'zone') {
+        // Check Area Collision during resize
+        const floor = state.floors.find(f => f.id === currentFloorId);
+        if (floor) {
+            // Current Zone Position (static during resize)
+            const zone = state.zones.find(z => z.id === id);
+            if (zone && Array.isArray(floor.areas)) {
+                const resizingRect = { 
+                    x: zone.location_x, 
+                    y: zone.location_y, 
+                    w: snappedWidth / PPM, 
+                    h: snappedHeight / PPM 
+                };
+                
+                const overlappingArea = floor.areas.find(area => {
+                    // If the area is passable, we allow zones to overlap it
+                    if (area.is_passable) return false;
+
+                    const areaRect = {
+                        x: area.location_x,
+                        y: area.location_y,
+                        w: area.width || 2,
+                        h: area.depth || 2
+                    };
+                    return checkOverlap(resizingRect, areaRect);
+                });
+                
+                if (overlappingArea) {
+                    // Ignore this resize step if it overlaps
+                    return;
+                }
+            }
+        }
+        updateZoneDimensions(id, snappedWidth / PPM, snappedHeight / PPM);
+    } else if (type === 'area') {
+         const floor = state.floors.find(f => f.id === floorId);
+         const area = floor?.areas?.[areaIndex];
+         
+         // Prevent Red Area from overlapping with Zones during resize
+         if (area && !area.is_passable) {
             const resizingRect = { 
-                x: zone.location_x, 
-                y: zone.location_y, 
+                x: area.location_x, 
+                y: area.location_y, 
                 w: snappedWidth / PPM, 
                 h: snappedHeight / PPM 
             };
             
-            const overlappingArea = floor.areas.find(area => {
-                const areaRect = {
-                    x: area.location_x,
-                    y: area.location_y,
-                    w: area.width || 2,
-                    h: area.depth || 2
-                };
-                return checkOverlap(resizingRect, areaRect);
+            const overlappingZone = state.zones.filter(z => z.floor_id === floorId).find(zone => {
+                const zoneRect = { x: zone.location_x, y: zone.location_y, w: zone.width, h: zone.depth };
+                return checkOverlap(resizingRect, zoneRect);
             });
             
-            if (overlappingArea) {
-                // Ignore this resize step if it overlaps
-                return;
-            }
-        }
-    }
-    
-    updateZoneDimensions(zoneId, snappedWidth / PPM, snappedHeight / PPM);
+            if (overlappingZone) return; // Prevent resize if it hits a zone
+         }
+
+         const currentHeight = area?.height || 3.0;
+         updateAreaDimensions(floorId, areaIndex, snappedWidth / PPM, snappedHeight / PPM, currentHeight);
+     }
   };
 
   const stopResize = () => {
@@ -346,8 +397,8 @@ function WarehouseContent() {
     const rawX = data.x;
     const rawY = data.y;
     
-    const snappedX = Math.round(rawX / snap) * snap;
-    const snappedY = Math.round(rawY / snap) * snap;
+    let snappedX = Math.round(rawX / snap) * snap;
+    let snappedY = Math.round(rawY / snap) * snap;
 
     // Convert back to meters
     const meterX = snappedX / PPM;
@@ -357,6 +408,24 @@ function WarehouseContent() {
         updateShelfPosition(item.id, meterX, meterY);
     } else if (type === 'area') {
         const { floorId, index } = item || {};
+        const floor = state.floors.find(f => f.id === (floorId || currentFloorId));
+        const area = floor?.areas?.[index];
+        
+        // Prevent Red Area from overlapping with Zones
+        if (area && !area.is_passable) {
+            const areaRect = { x: meterX, y: meterY, w: area.width || 2, h: area.depth || 2 };
+            const overlappingZone = state.zones.filter(z => z.floor_id === (floorId || currentFloorId)).find(zone => {
+                const zoneRect = { x: zone.location_x, y: zone.location_y, w: zone.width, h: zone.depth };
+                return checkOverlap(areaRect, zoneRect);
+            });
+            
+            if (overlappingZone) {
+                alert(`Cannot place Obstacle Area over ${overlappingZone.zone_name || 'Zone'}!`);
+                setTimeout(() => setIsDragging(false), 100);
+                return;
+            }
+        }
+        
         updateAreaPosition(floorId || currentFloorId, typeof index === 'number' ? index : 0, meterX, meterY);
     } else if (type === 'zone') {
         // Check Area Collision
@@ -370,6 +439,9 @@ function WarehouseContent() {
              };
 
              const overlappingArea = floor.areas.find(area => {
+                 // If the area is passable, we allow zones to overlap it
+                 if (area.is_passable) return false;
+
                  const areaRect = {
                      x: area.location_x,
                      y: area.location_y,
@@ -627,6 +699,7 @@ function WarehouseContent() {
                         setIsDragging={setIsDragging}
                         onSelect={() => { setSelectedShelf(null); setSelectedArea(idx); }}
                         removeArea={removeArea}
+                        startResize={startResize}
                     />
                  ))}
 
@@ -747,41 +820,98 @@ function WarehouseContent() {
                     </button>
                 </div>
                 
-                <div className="p-6 space-y-6">
+                <div className="p-6 space-y-4">
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Area Name</label>
                         <input 
                             type="text" 
                             value={currentFloor.areas[selectedArea]?.area_name || ''}
                             onChange={(e) => updateAreaLabel(currentFloor.id, selectedArea, e.target.value)}
-                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2 border"
+                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2 border text-sm"
                         />
                     </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Width (meters)</label>
-                        <input 
-                            type="number" 
-                            step="0.1"
-                            value={currentFloor.areas[selectedArea]?.width || 2}
-                            onChange={(e) => updateAreaDimensions(currentFloor.id, selectedArea, parseFloat(e.target.value), currentFloor.areas[selectedArea].depth, currentFloor.areas[selectedArea].height)}
-                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2 border"
-                        />
+
+                    <div className="grid grid-cols-3 gap-2">
+                        <div>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Width (m)</label>
+                            <input 
+                                type="number" 
+                                step="0.1"
+                                value={currentFloor.areas[selectedArea]?.width || 2}
+                                onChange={(e) => updateAreaDimensions(currentFloor.id, selectedArea, parseFloat(e.target.value), currentFloor.areas[selectedArea].depth, currentFloor.areas[selectedArea].height)}
+                                className="w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2 border text-xs"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Depth (m)</label>
+                            <input 
+                                type="number" 
+                                step="0.1"
+                                value={currentFloor.areas[selectedArea]?.depth || 2}
+                                onChange={(e) => updateAreaDimensions(currentFloor.id, selectedArea, currentFloor.areas[selectedArea].width, parseFloat(e.target.value), currentFloor.areas[selectedArea].height)}
+                                className="w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2 border text-xs"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Height (m)</label>
+                            <input 
+                                type="number" 
+                                step="0.1"
+                                value={currentFloor.areas[selectedArea]?.height || 3}
+                                onChange={(e) => updateAreaDimensions(currentFloor.id, selectedArea, currentFloor.areas[selectedArea].width, currentFloor.areas[selectedArea].depth, parseFloat(e.target.value))}
+                                className="w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2 border text-xs"
+                            />
+                        </div>
                     </div>
+
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Depth (meters)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Area Type</label>
+                        <select 
+                            value={currentFloor.areas[selectedArea]?.area_type || 'PATHWAY'}
+                            onChange={(e) => updateAreaProperty(currentFloor.id, selectedArea, 'area_type', e.target.value)}
+                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2 border text-sm"
+                        >
+                            <option value="PATHWAY">Pathway / Lane</option>
+                            <option value="OPERATIONAL">Operational Area</option>
+                            <option value="OBSTACLE">Obstacle (Stairs/Elevator)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Usage Category</label>
+                        <select 
+                            value={currentFloor.areas[selectedArea]?.usage_category || 'HUMAN_ONLY'}
+                            onChange={(e) => updateAreaProperty(currentFloor.id, selectedArea, 'usage_category', e.target.value)}
+                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2 border text-sm"
+                        >
+                            <option value="HUMAN_ONLY">Human Only</option>
+                            <option value="FORKLIFT_LANE">Forklift Lane</option>
+                            <option value="PACKING_STATION">Packing Station</option>
+                            <option value="DOCK_DOOR">Dock Door</option>
+                        </select>
+                    </div>
+
+                    <div className="flex items-center gap-2 py-2">
                         <input 
-                            type="number" 
-                            step="0.1"
-                            value={currentFloor.areas[selectedArea]?.depth || 2}
-                            onChange={(e) => updateAreaDimensions(currentFloor.id, selectedArea, currentFloor.areas[selectedArea].width, parseFloat(e.target.value), currentFloor.areas[selectedArea].height)}
-                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 p-2 border"
+                            type="checkbox"
+                            id="is_passable"
+                            checked={currentFloor.areas[selectedArea]?.is_passable ?? true}
+                            onChange={(e) => updateAreaProperty(currentFloor.id, selectedArea, 'is_passable', e.target.checked)}
+                            className="rounded border-gray-300 text-red-600 focus:ring-red-500 h-4 w-4"
                         />
+                        <label htmlFor="is_passable" className="text-sm font-medium text-gray-700">
+                            Is Passable (Allows Overlap)
+                        </label>
                     </div>
                     
-                    <div className="p-4 bg-orange-50 rounded-lg border border-orange-100">
-                        <h4 className="text-sm font-bold text-orange-800 mb-1">Collision Warning</h4>
-                        <p className="text-xs text-orange-700">
-                            Objects placed here will block shelf generation in this area. Move the red box to the correct location of your stairs, elevator, or obstacles.
+                    <div className={`p-4 rounded-lg border ${currentFloor.areas[selectedArea]?.is_passable ? 'bg-emerald-50 border-emerald-100' : 'bg-orange-50 border-orange-100'}`}>
+                        <h4 className={`text-sm font-bold mb-1 ${currentFloor.areas[selectedArea]?.is_passable ? 'text-emerald-800' : 'text-orange-800'}`}>
+                            {currentFloor.areas[selectedArea]?.is_passable ? 'Passable Area' : 'Obstacle Area'}
+                        </h4>
+                        <p className={`text-xs ${currentFloor.areas[selectedArea]?.is_passable ? 'text-emerald-700' : 'text-orange-700'}`}>
+                            {currentFloor.areas[selectedArea]?.is_passable 
+                                ? 'This area allows forklifts or humans to pass through. It can overlap with storage zones.' 
+                                : 'This area blocks movement and shelf generation. Move it to represent stairs, pillars, or fixed equipment.'}
                         </p>
                     </div>
                 </div>

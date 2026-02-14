@@ -92,11 +92,6 @@ export default function Home() {
           </button>
         </form>
 
-        <div className="pt-6 text-center">
-           <p className="text-indigo-300/60 text-xs italic">
-             Hint: use <b>manager1</b> or <b>staff1</b> to login
-           </p>
-        </div>
       </div>
     </div>
   );

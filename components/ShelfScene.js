@@ -52,12 +52,13 @@ function Rack({ shelf, highlight }) {
   );
 }
 
-function Area({ x, y, width = 2, depth = 2, height = 3, label = 'Area' }) {
+function Area({ x, y, width = 2, depth = 2, height = 3, label = 'Area', isPassable = true }) {
+    const color = isPassable ? "#10b981" : "#ef4444"; // Emerald-500 for Aisle, Rose-500 for Obstacle
     return (
         <group position={[x + width/2, height/2, y + depth/2]}>
             <mesh position={[0, 0, 0]}>
                 <boxGeometry args={[width, height, depth]} />
-                <meshStandardMaterial color="#ef4444" opacity={0.8} transparent />
+                <meshStandardMaterial color={color} opacity={isPassable ? 0.4 : 0.8} transparent />
             </mesh>
              <Text position={[0, height/2 + 0.5, 0]} fontSize={0.5} color="white" anchorX="center" anchorY="middle">
                 {label}
@@ -113,6 +114,7 @@ export default function ShelfScene({ selectedShelfId, floorId }) {
             depth={ar.depth || currentFloor.area_depth || 2}
             height={ar.height || 3}
             label={ar.area_name} 
+            isPassable={ar.is_passable ?? true}
           />
       ))}
 

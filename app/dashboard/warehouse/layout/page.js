@@ -18,6 +18,7 @@ export default function LayoutEntryPage() {
   const [showForm, setShowForm] = useState(false);
 
   // Sorting Logic: Move user's assigned warehouse to the top
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const sortedWarehouses = useMemo(() => {
     if (!state.warehouses) return [];
     if (!user?.warehouse_id) return state.warehouses;

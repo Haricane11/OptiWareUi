@@ -96,12 +96,20 @@ export function WmsProvider({ children }) {
           });
         });
 
+        const firstWh = data[0];
+        const dims = firstWh ? {
+          widthM: parseFloat(firstWh.width) || 30,
+          depthM: parseFloat(firstWh.depth) || 30,
+          heightM: parseFloat(firstWh.height) || 10
+        } : { widthM: 30, depthM: 30, heightM: 10 };
+
         setState(prev => ({
           ...prev,
           warehouses: data,
           floors: allFloors,
           zones: allZones,
           shelves: allShelves,
+          warehouseDims: dims,
           isConfigured: data.length > 0
         }));
       }
@@ -299,6 +307,25 @@ useEffect(() => {
     await updateArea(area.id, { width, depth, height });
   };
 
+  const updateAreaProperty = async (floorId, areaIndex, property, value) => {
+    const floor = state.floors.find(f => f.id === floorId);
+    const area = floor?.areas?.[areaIndex];
+    if (!area || !area.id) return;
+
+    setState(prev => ({
+      ...prev,
+      floors: prev.floors.map(f => {
+        if (f.id !== floorId) return f;
+        const areas = Array.isArray(f.areas) ? [...f.areas] : [];
+        if (areas[areaIndex]) {
+          areas[areaIndex] = { ...areas[areaIndex], [property]: value };
+        }
+        return { ...f, areas };
+      })
+    }));
+    await updateArea(area.id, { [property]: value });
+  };
+
   const updateAreaLabel = async (floorId, areaIndex, area_name) => {
      const floor = state.floors.find(f => f.id === floorId);
      const area = floor?.areas?.[areaIndex];
@@ -473,6 +500,7 @@ useEffect(() => {
     <WmsContext.Provider value={{ 
         state, setState, fetchWarehouses, findNextAvailablePosition, 
         updateShelfPosition, updateAreaPosition, updateAreaDimensions, updateAreaLabel, 
+        updateAreaProperty,
         updateZonePosition, updateZoneDimensions, removeZone, addArea, removeArea, 
         addZone, saveBulkShelves, updateShelf, deleteShelf, updateZone, updateArea,
         openUpdateModal, closeUpdateModal, updateWarehouseMetadata

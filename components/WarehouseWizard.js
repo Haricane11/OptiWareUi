@@ -43,13 +43,14 @@ export default function WarehouseWizard({ onComplete, onClose, isUpdate = false,
       const wh = initialWarehouse;
       const nf = (wh.floors && wh.floors.length > 0) ? wh.floors.length : 1;
       const whWidth = wh.width || 30;
+      const whDepth = wh.depth || 30;
       const whHeight = wh.height || 10;
       
       setFormData({
         warehouseName: wh.name || '',
         warehouseLocation: wh.location || '',
         widthM: whWidth,
-        depthM: wh.depth || 30,
+        depthM: whDepth,
         heightM: whHeight,
         numFloors: nf,
         floorHeight: state.floorHeight || 5,
