@@ -1,125 +1,97 @@
-"use client";
+'use client';
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import OptiWareLogo from "@/components/OptiWareLogo";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAuth } from "@/context/AuthContext";
+import { useAuth } from '@/context/AuthContext';
+import { User, ShieldCheck, Warehouse,  Lock } from 'lucide-react';
+import { useState } from 'react';
 
-const DEMO = {
-  manager: { email: "manager@optiware.com", password: "manager123" },
-  staff: { email: "staff@optiware.com", password: "staff123" },
-};
+export default function Home() {
+  const { login, loading, user } = useAuth();
+  const [credential, setCredential] = useState({username: "", password: ""})
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-export default function LoginPage() {
-  const router = useRouter();
-  const { login } = useAuth();
-  const [role, setRole] = useState("manager");
-  const [email, setEmail] = useState(DEMO.manager.email);
-  const [password, setPassword] = useState(DEMO.manager.password);
-  const [error, setError] = useState(null);
-
-  const ctaLabel = useMemo(
-    () => (role === "manager" ? "Sign in as Manager" : "Sign in as Staff"),
-    [role]
-  );
-
-  const onRoleChange = (v) => {
-    const r = v === "staff" ? "staff" : "manager";
-    setRole(r);
-    setEmail(DEMO[r].email);
-    setPassword(DEMO[r].password);
-    setError(null);
-  };
-
-  const handleLogin = () => {
-    setError(null);
-
-    const expected = DEMO[role];
-    const ok =
-      email.trim().toLowerCase() === expected.email.toLowerCase() &&
-      password === expected.password;
-
-    if (!ok) {
-      setError("Invalid credentials. Try demo credentials.");
-      return;
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setIsSubmitting(true);
+    const result = await login(credential);
+    if (!result.success) {
+      setError(result.message);
     }
-
-    login("demo-token", role);
+    setIsSubmitting(false);
   };
 
-  const autoFill = () => {
-    setEmail(DEMO[role].email);
-    setPassword(DEMO[role].password);
-    setError(null);
-  };
+  if (loading) return null;
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-4">
-      <div className="w-full max-w-xl">
-        <div className="flex items-center justify-center mb-8">
-          <OptiWareLogo size="lg" />
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background text-foreground p-6">
+      <div className="max-w-md w-full space-y-8 glass-card p-10 rounded-3xl">
+        <div className="text-center">
+          <div className="mx-auto w-20 h-20 bg-primary rounded-2xl flex items-center justify-center mb-6 rotate-12 shadow-lg">
+             <Warehouse className="w-12 h-12 text-primary-foreground -rotate-12" />
+          </div>
+          <h1 className="text-4xl font-extrabold text-foreground tracking-tight mb-2">OptiWare</h1>
+          <p className="text-muted-foreground font-medium">Enterprise Warehouse Intelligence</p>
         </div>
 
-        <Card className="shadow-sm">
-          <CardContent className="p-8">
-            <h1 className="text-2xl font-semibold mb-1">Sign in</h1>
-            <p className="text-sm text-muted-foreground mb-6">
-              Choose your role and enter credentials
-            </p>
-
-            <Tabs value={role} onValueChange={onRoleChange} className="mb-6">
-              <TabsList className="grid grid-cols-2 w-full">
-                <TabsTrigger value="manager">Manager</TabsTrigger>
-                <TabsTrigger value="staff">Staff</TabsTrigger>
-              </TabsList>
-            </Tabs>
-
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Email</Label>
-                <Input value={email} onChange={(e) => setEmail(e.target.value)} />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Password</Label>
-                <Input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+        <form onSubmit={handleSubmit} className="mt-8 space-y-6">
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-foreground mb-2 ml-1">Username</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted-foreground">
+                  <User size={18} />
+                </div>
+                <input
+                  type="text"
+                  required
+                  value={credential.username}
+                  onChange={(e) => setCredential(prev => ({...prev, username: e.target.value}))}
+                  className="block w-full pl-10 pr-4 py-3 bg-card border border-border rounded-xl text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                  placeholder="Enter your username"
                 />
               </div>
+            </div>
+          </div>
 
-              {error && (
-                <div className="text-sm text-red-500">{error}</div>
-              )}
-
-              <Button className="w-full" onClick={handleLogin}>
-                {ctaLabel}
-              </Button>
-
-              <div className="border rounded-lg p-4 text-sm bg-muted/30">
-                <div className="font-medium mb-2">Demo credentials:</div>
-                <div className="text-muted-foreground">
-                  {role === "manager"
-                    ? `manager@optiware.com / manager123`
-                    : `staff@optiware.com / staff123`}
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-3 rounded-lg text-center animate-pulse">
+              {error}
+            </div>
+          )}
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-foreground mb-2 ml-1">Password</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted-foreground">
+                  <Lock size={18} />
                 </div>
-                <button
-                  className="text-primary text-sm mt-2 hover:underline"
-                  onClick={autoFill}
-                  type="button"
-                >
-                  Auto-fill credentials
-                </button>
+                <input
+                  type="password"
+                  required
+                  value={credential.password}
+                  onChange={(e) => setCredential(prev => ({...prev, password: e.target.value}))}
+                  className="block w-full pl-10 pr-4 py-3 bg-card border border-border rounded-xl text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                  placeholder="Enter your password"
+                />
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full py-4 px-6 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-bold text-lg shadow-lg shadow-primary/20 transform active:scale-95 transition-all flex items-center justify-center gap-2 group disabled:opacity-50"
+          >
+            {isSubmitting ? 'Authenticating...' : (
+              <>
+                Sign In 
+                <ShieldCheck className="group-hover:translate-x-1 transition-transform" size={20} />
+              </>
+            )}
+          </button>
+        </form>
+
       </div>
     </div>
   );
