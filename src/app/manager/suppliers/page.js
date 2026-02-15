@@ -1,44 +1,234 @@
 "use client";
 
-import { useState } from "react";
-import { motion } from "framer-motion";
-import { Plus, Search, Phone, Mail, MapPin, Package, MoreHorizontal, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Plus,
+  Search,
+  Phone,
+  Mail,
+  MapPin,
+  Package,
+  MoreHorizontal,
+  X,
+  Building2,
+  User,
+  Tag,
+  CheckCircle2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getSuppliers, createSupplier } from "@/lib/api/suppliers";
 
-const suppliersData = [
-  { id: "SUP-001", name: "FreshCo Ltd.", contact: "Alice Chen", email: "alice@freshco.com", phone: "+1 555-0101", address: "123 Green Ave, Portland", category: "Dairy & Fresh", products: 14, status: "active", lastOrder: "Feb 8, 2026" },
-  { id: "SUP-002", name: "SteelWorks Inc.", contact: "Robert Kim", email: "r.kim@steelworks.com", phone: "+1 555-0202", address: "456 Industrial Blvd, Detroit", category: "Hardware", products: 8, status: "active", lastOrder: "Feb 7, 2026" },
-  { id: "SUP-003", name: "PackPro", contact: "Maria Lopez", email: "maria@packpro.com", phone: "+1 555-0303", address: "789 Box St, Austin", category: "Packaging", products: 6, status: "active", lastOrder: "Feb 5, 2026" },
-  { id: "SUP-004", name: "TechParts Global", contact: "James Ota", email: "j.ota@techparts.io", phone: "+1 555-0404", address: "321 Circuit Rd, San Jose", category: "Electronics", products: 11, status: "inactive", lastOrder: "Jan 15, 2026" },
-  { id: "SUP-005", name: "OrganicFarms Co.", contact: "Sarah Patel", email: "sarah@organicfarms.com", phone: "+1 555-0505", address: "654 Valley Ln, Sacramento", category: "Dairy & Fresh", products: 9, status: "active", lastOrder: "Feb 9, 2026" },
-  { id: "SUP-006", name: "BuildRight Supply", contact: "Tom Baker", email: "tom@buildright.com", phone: "+1 555-0606", address: "111 Builder Way, Phoenix", category: "Hardware", products: 5, status: "active", lastOrder: "Feb 3, 2026" },
-];
+const toDisplaySupplier = (row) => {
+  const dbId = row?.id;
+  const code =
+    typeof dbId === "number" || (typeof dbId === "string" && /^\d+$/.test(dbId))
+      ? `SUP-${String(dbId).padStart(3, "0")}`
+      : String(dbId ?? "");
+
+  return {
+    dbId,
+    id: code || "SUP-???",
+    name: row?.name ?? "—",
+    contact: row?.contact_person ?? "—",
+    email: row?.email ?? "—",
+    phone: row?.phone ?? "—",
+    address: row?.address ?? "—",
+    status: (row?.status ?? "inactive").toLowerCase(),
+    created_at: row?.created_at ?? null,
+    products: typeof row?.products_count === "number" ? row.products_count : 0,
+    lastOrder: row?.last_order ?? "—",
+  };
+};
+
+const emptyForm = {
+  name: "",
+  contact_person: "",
+  phone: "",
+  email: "",
+  address: "",
+  status: "active",
+};
 
 export default function Suppliers() {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [selectedSupplier, setSelectedSupplier] = useState(null);
 
-  const filtered = suppliersData.filter(s =>
-    s.name.toLowerCase().includes(search.toLowerCase()) ||
-    s.category.toLowerCase().includes(search.toLowerCase())
-  );
+  const [suppliers, setSuppliers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  // Modal
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [editingSupplier, setEditingSupplier] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        setLoading(true);
+        setError("");
+        const rows = await getSuppliers();
+        const mapped = Array.isArray(rows) ? rows.map(toDisplaySupplier) : [];
+        if (alive) setSuppliers(mapped);
+      } catch (e) {
+        if (alive) setError(e?.message || "Failed to load suppliers.");
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return suppliers;
+    return suppliers.filter(
+      (s) =>
+        (s.name || "").toLowerCase().includes(q)
+    );
+  }, [search, suppliers]);
+
+  const totalCount = suppliers.length;
+  const activeCount = suppliers.filter((s) => s.status === "active").length;
+
+  const openAdd = () => {
+    setEditingSupplier(null);
+    setForm(emptyForm);
+    setFormError("");
+    setIsAddOpen(true);
+  };
+
+
+  const openEditProfile = () => {
+    if (!selectedSupplier) return;
+    setEditingSupplier(selectedSupplier);
+    setForm({
+      name: selectedSupplier.name === "—" ? "" : selectedSupplier.name,
+      contact_person: selectedSupplier.contact === "—" ? "" : selectedSupplier.contact,
+      phone: selectedSupplier.phone === "—" ? "" : selectedSupplier.phone,
+      email: selectedSupplier.email === "—" ? "" : selectedSupplier.email,
+      address: selectedSupplier.address === "—" ? "" : selectedSupplier.address,
+      status: selectedSupplier.status || "active",
+    });
+    setFormError("");
+    setIsAddOpen(true);
+  };
+
+  const placeOrderForSupplier = () => {
+    if (!selectedSupplier?.dbId) return;
+    try {
+      localStorage.setItem("preselectSupplierId", String(selectedSupplier.dbId));
+    } catch {}
+    setSelectedSupplier(null);
+    router.push("/manager/purchase-orders");
+  };
+
+
+  const closeAdd = () => {
+    if (saving) return;
+    setIsAddOpen(false);
+  };
+
+  const onChange = (key) => (e) =>
+    setForm((p) => ({ ...p, [key]: e.target.value }));
+
+  
+  const updateSupplier = async (id, payload) => {
+    const base = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+    const res = await fetch(`${base}/suppliers/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const msg = await res.text();
+      throw new Error(msg || "Failed to update supplier.");
+    }
+    return res.json();
+  };
+
+const submitNewSupplier = async (e) => {
+    e.preventDefault();
+    setFormError("");
+
+    if (!form.name.trim()) {
+      setFormError("Supplier name is required.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      // payload must match DB column names
+      const payload = {
+        name: form.name.trim(),
+        contact_person: form.contact_person.trim() || null,
+        phone: form.phone.trim() || null,
+        email: form.email.trim() || null,
+        address: form.address.trim() || null,
+        status: form.status || "active",
+      };
+
+      if (editingSupplier?.dbId) {
+        const updated = await updateSupplier(editingSupplier.dbId, payload);
+        const mapped = toDisplaySupplier(updated);
+
+        setSuppliers((prev) =>
+          prev.map((s) => (s.dbId === editingSupplier.dbId ? mapped : s))
+        );
+        setSelectedSupplier(mapped);
+      } else {
+        const created = await createSupplier(payload);
+        const mapped = toDisplaySupplier(created);
+
+        // update table immediately (prepend)
+        setSuppliers((prev) => [mapped, ...prev]);
+      }
+
+      setEditingSupplier(null);
+      setIsAddOpen(false);
+      setForm(emptyForm);
+    } catch (err) {
+      setFormError(err?.message || "Failed to create supplier.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Suppliers</h1>
-          <p className="text-sm text-muted-foreground mt-1">{suppliersData.length} suppliers · {suppliersData.filter(s => s.status === "active").length} active</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {loading ? "Loading suppliers…" : `${totalCount} suppliers · ${activeCount} active`}
+          </p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-sm hover:opacity-90 transition-opacity">
+
+        <button
+          onClick={openAdd}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium shadow-sm hover:opacity-90 transition-opacity"
+        >
           <Plus size={16} />
           Add Supplier
         </button>
       </div>
 
-      {/* Search */}
       <div className="relative max-w-sm">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <Search
+          size={16}
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+        />
         <input
           type="text"
           placeholder="Search suppliers..."
@@ -48,28 +238,33 @@ export default function Suppliers() {
         />
       </div>
 
-      {/* Table */}
       <div className="glass-card rounded-xl overflow-hidden">
+        {error && (
+          <div className="px-5 py-3 text-sm text-destructive border-b border-border bg-destructive/5">
+            {error}
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-muted-foreground border-b border-border bg-muted/30">
                 <th className="px-5 py-3 font-medium">Supplier</th>
                 <th className="px-5 py-3 font-medium">Contact</th>
-                <th className="px-5 py-3 font-medium">Category</th>
                 <th className="px-5 py-3 font-medium">Products</th>
                 <th className="px-5 py-3 font-medium">Status</th>
                 <th className="px-5 py-3 font-medium">Last Order</th>
                 <th className="px-5 py-3 font-medium"></th>
               </tr>
             </thead>
+
             <tbody>
               {filtered.map((s, i) => (
                 <motion.tr
-                  key={s.id}
+                  key={s.dbId ?? s.id}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  transition={{ delay: i * 0.04 }}
+                  transition={{ delay: i * 0.03 }}
                   className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
                   onClick={() => setSelectedSupplier(s)}
                 >
@@ -80,31 +275,44 @@ export default function Suppliers() {
                     </div>
                   </td>
                   <td className="px-5 py-3.5 text-muted-foreground">{s.contact}</td>
-                  <td className="px-5 py-3.5">
-                    <span className="text-xs px-2.5 py-1 rounded-full bg-secondary text-secondary-foreground">{s.category}</span>
-                  </td>
                   <td className="px-5 py-3.5">{s.products}</td>
                   <td className="px-5 py-3.5">
-                    <span className={cn("text-xs px-2.5 py-1 rounded-full font-medium",
-                      s.status === "active" ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"
-                    )}>
+                    <span
+                      className={cn(
+                        "text-xs px-2.5 py-1 rounded-full font-medium",
+                        s.status === "active"
+                          ? "bg-success/10 text-success"
+                          : "bg-muted text-muted-foreground"
+                      )}
+                    >
                       {s.status}
                     </span>
                   </td>
                   <td className="px-5 py-3.5 text-muted-foreground">{s.lastOrder}</td>
                   <td className="px-5 py-3.5">
-                    <button className="p-1 rounded-md hover:bg-muted transition-colors">
+                    <button
+                      className="p-1 rounded-md hover:bg-muted transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <MoreHorizontal size={16} className="text-muted-foreground" />
                     </button>
                   </td>
                 </motion.tr>
               ))}
+
+              {!loading && filtered.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-5 py-10 text-center text-sm text-muted-foreground">
+                    No suppliers found.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Details Drawer-like Overlay */}
+      {/* Existing details overlay (unchanged) */}
       {selectedSupplier && (
         <motion.div
           initial={{ opacity: 0 }}
@@ -116,7 +324,7 @@ export default function Suppliers() {
             initial={{ x: 400 }}
             animate={{ x: 0 }}
             className="w-full max-w-md h-full bg-card border-l border-border shadow-2xl rounded-2xl p-6 overflow-y-auto"
-            onClick={e => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-8">
               <h2 className="text-xl font-bold">Supplier Details</h2>
@@ -145,57 +353,45 @@ export default function Suppliers() {
                     <Phone size={16} className="text-muted-foreground" />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Phone</p>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
+                      Phone
+                    </p>
                     <p className="text-sm font-medium">{selectedSupplier.phone}</p>
                   </div>
                 </div>
+
                 <div className="flex items-start gap-3">
                   <div className="p-2 rounded-lg bg-muted">
                     <Mail size={16} className="text-muted-foreground" />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Email</p>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
+                      Email
+                    </p>
                     <p className="text-sm font-medium">{selectedSupplier.email}</p>
                   </div>
                 </div>
+
                 <div className="flex items-start gap-3">
                   <div className="p-2 rounded-lg bg-muted">
                     <MapPin size={16} className="text-muted-foreground" />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Address</p>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
+                      Address
+                    </p>
                     <p className="text-sm font-medium">{selectedSupplier.address}</p>
                   </div>
                 </div>
-                <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-lg bg-muted">
-                    <Package size={16} className="text-muted-foreground" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Supply Category</p>
-                    <p className="text-sm font-medium">{selectedSupplier.category}</p>
-                  </div>
-                </div>
-              </div>
 
-              <div className="pt-6 border-t border-border">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 rounded-xl bg-muted/50">
-                    <p className="text-2xl font-bold">{selectedSupplier.products}</p>
-                    <p className="text-xs text-muted-foreground">Total Products</p>
-                  </div>
-                  <div className="p-4 rounded-xl bg-muted/50">
-                    <p className="text-sm font-bold truncate">{selectedSupplier.lastOrder}</p>
-                    <p className="text-xs text-muted-foreground">Last Order</p>
-                  </div>
-                </div>
+             
               </div>
 
               <div className="flex gap-3 pt-6">
-                <button className="flex-1 py-2.5 rounded-xl border border-border font-medium hover:bg-muted transition-colors">
+                <button onClick={openEditProfile} className="flex-1 py-2.5 rounded-xl border border-border font-medium hover:bg-muted transition-colors">
                   Edit Profile
                 </button>
-                <button className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground font-medium shadow-sm hover:opacity-90 transition-opacity">
+                <button onClick={placeOrderForSupplier} className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground font-medium shadow-sm hover:opacity-90 transition-opacity">
                   Place Order
                 </button>
               </div>
@@ -203,6 +399,188 @@ export default function Suppliers() {
           </motion.div>
         </motion.div>
       )}
+
+      {/* ✅ Add Supplier Modal */}
+      <AnimatePresence>
+        {isAddOpen && (
+          <motion.div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={closeAdd}
+          >
+            <motion.div
+              initial={{ y: 18, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 12, opacity: 0 }}
+              transition={{ type: "spring", damping: 22, stiffness: 260 }}
+              className="w-full max-w-lg rounded-2xl bg-card border border-border shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-5 border-b border-border flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
+                    <Building2 size={18} />
+                  </div>
+                  <div>
+                    <p className="font-bold">{editingSupplier ? "Edit Supplier" : "Add Supplier"}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={closeAdd}
+                  className="p-2 rounded-full hover:bg-muted transition-colors"
+                  disabled={saving}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={submitNewSupplier} className="p-5 space-y-4">
+                {formError && (
+                  <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-xl px-4 py-3">
+                    {formError}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Field
+                    icon={<Building2 size={16} />}
+                    label="Supplier Name *"
+                    value={form.name}
+                    onChange={onChange("name")}
+                    placeholder="e.g., FreshCo Ltd."
+                    required
+                  />
+                  <Field
+                    icon={<User size={16} />}
+                    label="Contact Person"
+                    value={form.contact_person}
+                    onChange={onChange("contact_person")}
+                    placeholder="e.g., Alice Chen"
+                  />
+                  <Field
+                    icon={<Phone size={16} />}
+                    label="Phone"
+                    value={form.phone}
+                    onChange={onChange("phone")}
+                    placeholder="09xxxxxxx"
+                  />
+                  <Field
+                    icon={<Mail size={16} />}
+                    label="Email"
+                    value={form.email}
+                    onChange={onChange("email")}
+                    placeholder="name@email.com"
+                    type="email"
+                  />
+                </div>
+
+                <Field
+                  icon={<MapPin size={16} />}
+                  label="Address"
+                  value={form.address}
+                  onChange={onChange("address")}
+                  placeholder="Full address"
+                />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* <Field
+                    icon={<Tag size={16} />}
+                    label="Category"
+                    value={form.category}
+                    onChange={onChange("category")}
+                    placeholder="e.g., Dairy / Packaging"
+                  /> */}
+
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-semibold text-muted-foreground">
+                      Status
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setForm((p) => ({ ...p, status: "active" }))}
+                        className={cn(
+                          "flex-1 px-3 py-2 rounded-xl text-sm border transition-colors",
+                          form.status === "active"
+                            ? "border-primary bg-primary/10"
+                            : "border-border hover:bg-muted"
+                        )}
+                      >
+                        Active
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setForm((p) => ({ ...p, status: "inactive" }))}
+                        className={cn(
+                          "flex-1 px-3 py-2 rounded-xl text-sm border transition-colors",
+                          form.status === "inactive"
+                            ? "border-primary bg-primary/10"
+                            : "border-border hover:bg-muted"
+                        )}
+                      >
+                        Inactive
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-3 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={closeAdd}
+                    className="flex-1 py-2.5 rounded-xl border border-border font-medium hover:bg-muted transition-colors"
+                    disabled={saving}
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground font-medium shadow-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                  >
+                    {saving ? "Saving..." : (
+                      <>
+                        <CheckCircle2 size={16} />
+                        {editingSupplier ? "Update Supplier" : "Save Supplier"}
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+function Field({
+  label,
+  icon,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+  required = false,
+}) {
+  return (
+    <label className="space-y-1.5 block">
+      <p className="text-xs font-semibold text-muted-foreground">{label}</p>
+      <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 focus-within:ring-2 focus-within:ring-primary/30 transition-all">
+        <span className="text-muted-foreground">{icon}</span>
+        <input
+          required={required}
+          type={type}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          className="w-full bg-transparent outline-none text-sm"
+        />
+      </div>
+    </label>
   );
 }
