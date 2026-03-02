@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="3" time="0.096" timestamp="2026-03-02T03:00:47.593487+06:30" hostname="LAPTOP-MUG8VKEC"><testcase classname="tests.test_inventory_classification.TestInventoryClassificationRulesV2" name="test_calculate_severity_log_scaling" time="0.001" /><testcase classname="tests.test_inventory_classification.TestInventoryClassificationRulesV2" name="test_margin_action_override" time="0.001" /><testcase classname="tests.test_inventory_classification.TestInventoryClassificationRulesV2" name="test_determine_action_margin_zero_price" time="0.001"><failure message="AssertionError: assert &lt;RecommendedA...L: 'DISPOSAL'&gt; == &lt;RecommendedA....NONE: 'NONE'&gt;&#10;  &#10;  #x1B[0m#x1B[91m- NONE#x1B[39;49;00m#x1B[90m#x1B[39;49;00m&#10;  #x1B[92m+ DISPOSAL#x1B[39;49;00m#x1B[90m#x1B[39;49;00m">self = &lt;test_inventory_classification.TestInventoryClassificationRulesV2 object at 0x000001F16F384750&gt;
+
+    def test_determine_action_margin_zero_price(self):
+        # Division by zero protection
+        action = InventoryClassificationService._determine_action_with_margin(
+            HealthClassification.SLOW_MOVING, unit_price=0.0, cost=50.0
+        )
+&gt;       assert action == RecommendedAction.NONE # Zero margin triggered default NONE
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: assert &lt;RecommendedA...L: 'DISPOSAL'&gt; == &lt;RecommendedA....NONE: 'NONE'&gt;
+E         
+E         #x1B[0m#x1B[91m- NONE#x1B[39;49;00m#x1B[90m#x1B[39;49;00m
+E         #x1B[92m+ DISPOSAL#x1B[39;49;00m#x1B[90m#x1B[39;49;00m
+
+tests\test_inventory_classification.py:61: AssertionError</failure></testcase></testsuite></testsuites>
