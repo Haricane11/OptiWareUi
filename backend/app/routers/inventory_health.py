@@ -23,6 +23,8 @@ from app.schemas.inventory_health import (
     BundleResponse,
     BundleSaleResponse,
     BundleStatusUpdateRequest,
+    PromotionResponse,
+    PromotionStatusUpdateRequest,
 )
 from app.services.inventory_health_service import InventoryHealthService
 from app.services.action_suggestion_engine import ActionSuggestionEngine
@@ -44,6 +46,7 @@ async def health_report(db: AsyncSession = Depends(get_db)):
         dead_stock_count=report["dead_stock_count"],
         slow_moving_count=report["slow_moving_count"],
         expiry_risk_count=report["expiry_risk_count"],
+        low_stock_count=report.get("low_stock_count", 0),
         total_value_at_risk=report["total_value_at_risk"],
         dead_stock_items=[
             HealthStatusItem.model_validate(s) for s in report["dead_stock_items"]
@@ -53,6 +56,9 @@ async def health_report(db: AsyncSession = Depends(get_db)):
         ],
         expiry_risk_items=[
             HealthStatusItem.model_validate(s) for s in report["expiry_risk_items"]
+        ],
+        low_stock_items=[
+            HealthStatusItem.model_validate(s) for s in report.get("low_stock_items", [])
         ],
     )
 
@@ -288,4 +294,82 @@ async def get_bundle_sales(db: AsyncSession = Depends(get_db)):
             created_at=sale.created_at,
         ))
     return response
+
+# ── Promotions Fetching ────────────────────────────────────────────────
+
+@router.get("/promotions", response_model=list[PromotionResponse])
+async def get_promotions(db: AsyncSession = Depends(get_db)):
+    """Fetch all active and past promotions (discounts)."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.promotion import Promotion
+    from app.models.products import Product
+    
+    stmt = (
+        select(Promotion)
+        .options(selectinload(Promotion.product))
+        .order_by(Promotion.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    promotions = result.scalars().all()
+    
+    response = []
+    for p in promotions:
+        response.append(PromotionResponse(
+            id=p.id,
+            name=p.name,
+            product_id=p.product_id,
+            product_name=p.product.name if p.product else f"Product #{p.product_id}",
+            discount_type=p.discount_type.value if hasattr(p.discount_type, 'value') else str(p.discount_type),
+            discount_value=float(p.discount_value),
+            min_quantity=p.min_quantity,
+            valid_from=p.valid_from,
+            valid_until=p.valid_until,
+            is_active=p.is_active,
+            approval_status=p.approval_status.value if hasattr(p.approval_status, 'value') else str(p.approval_status),
+            created_at=p.created_at,
+        ))
+    return response
+
+@router.patch("/promotions/{promo_id}/status", response_model=PromotionResponse)
+async def update_promotion_status(
+    promo_id: int,
+    payload: PromotionStatusUpdateRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Update the active status of a promotion."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.promotion import Promotion
+    from app.models.products import Product
+    from fastapi import HTTPException
+    
+    async with db.begin():
+        stmt = (
+            select(Promotion)
+            .where(Promotion.id == promo_id)
+            .options(selectinload(Promotion.product))
+        )
+        result = await db.execute(stmt)
+        promo = result.scalars().first()
+        
+        if not promo:
+            raise HTTPException(status_code=404, detail="Promotion not found")
+            
+        promo.is_active = payload.is_active
+        
+    return PromotionResponse(
+        id=promo.id,
+        name=promo.name,
+        product_id=promo.product_id,
+        product_name=promo.product.name if promo.product else f"Product #{promo.product_id}",
+        discount_type=promo.discount_type.value if hasattr(promo.discount_type, 'value') else str(promo.discount_type),
+        discount_value=float(promo.discount_value),
+        min_quantity=promo.min_quantity,
+        valid_from=promo.valid_from,
+        valid_until=promo.valid_until,
+        is_active=promo.is_active,
+        approval_status=promo.approval_status.value if hasattr(promo.approval_status, 'value') else str(promo.approval_status),
+        created_at=promo.created_at,
+    )
 

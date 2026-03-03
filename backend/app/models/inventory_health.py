@@ -24,6 +24,7 @@ class HealthType(str, enum.Enum):
     DEAD = "DEAD"
     SLOW = "SLOW"
     EXPIRY = "EXPIRY"
+    LOW = "LOW"
 
 
 class SuggestionType(str, enum.Enum):

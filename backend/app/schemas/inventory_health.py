@@ -12,6 +12,7 @@ class HealthTypeEnum(str, Enum):
     DEAD = "DEAD"
     SLOW = "SLOW"
     EXPIRY = "EXPIRY"
+    LOW = "LOW"
 
 
 class SuggestionTypeEnum(str, Enum):
@@ -57,10 +58,12 @@ class HealthReportResponse(BaseModel):
     dead_stock_count: int
     slow_moving_count: int
     expiry_risk_count: int
+    low_stock_count: int
     total_value_at_risk: float
     dead_stock_items: list[HealthStatusItem]
     slow_moving_items: list[HealthStatusItem]
     expiry_risk_items: list[HealthStatusItem]
+    low_stock_items: list[HealthStatusItem]
 
 
 # ── Action Suggestions ───────────────────────────────────────────────
@@ -192,6 +195,28 @@ class BundleSaleResponse(BaseModel):
     sales_order_id: int
     order_number: str
     quantity: int
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+# ── Promotion Fetching ──────────────────────────────────────────────────
+
+class PromotionStatusUpdateRequest(BaseModel):
+    is_active: bool
+
+class PromotionResponse(BaseModel):
+    id: int
+    name: str
+    product_id: int
+    product_name: str
+    discount_type: str
+    discount_value: float
+    min_quantity: Optional[int] = None
+    valid_from: datetime
+    valid_until: Optional[datetime] = None
+    is_active: bool
+    approval_status: str
     created_at: Optional[datetime] = None
 
     class Config:

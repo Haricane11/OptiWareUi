@@ -7,7 +7,7 @@ from .user import User  # noqa: F401
 from .products import Product  # noqa: F401
 from .reorder_policy import ReorderPolicy  # noqa: F401
 from .inventory import Inventory  # noqa: F401
-from .orders import SalesOrder, SalesOrderItem, DeliveryNote, DeliveryNoteItem  # noqa: F401
+from .orders import SalesOrder, SalesOrderItem, DeliveryNote, DeliveryNoteItem, PickingAllocation  # noqa: F401
 from .purchase import PurchaseOrder, PurchaseOrderItem  # noqa: F401
 from .receipt import Receipt, ReceiptItem  # noqa: F401
 from .placement import PlacementSuggestion  # noqa: F401

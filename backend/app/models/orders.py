@@ -37,6 +37,7 @@ class SalesOrder(Base):
     status = Column(String(20), default="CREATED")
     priority_level = Column(String(20))
     order_date = Column(Date)
+    expected_delivery_date = Column(Date)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     items = relationship("SalesOrderItem", back_populates="order")
@@ -84,3 +85,16 @@ class DeliveryNoteItem(Base):
 
     delivery_note = relationship("DeliveryNote", back_populates="items")
     sales_order_item = relationship("SalesOrderItem")
+
+
+class PickingAllocation(Base):
+    __tablename__ = "picking_allocations"
+
+    id = Column(Integer, primary_key=True)
+    delivery_note_item_id = Column(Integer, ForeignKey("delivery_note_items.id", ondelete="CASCADE"), nullable=False)
+    inventory_id = Column(Integer, ForeignKey("inventory.id"), nullable=False)
+    quantity_allocated = Column(Integer, nullable=False)
+    picking_sequence = Column(Integer, nullable=False)
+    status = Column(String(20), default="PENDING")
+    created_at = Column(DateTime(timezone=False), server_default=func.now())
+

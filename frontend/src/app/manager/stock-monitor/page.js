@@ -70,12 +70,14 @@ function PaginationControls({ currentPage, totalItems, pageSize, onPageChange })
 
 const typeStyles = {
   low: "bg-destructive/10 text-destructive",
+  slow: "bg-primary/10 text-primary",
   dead: "bg-foreground/10 text-foreground",
   expiring: "bg-warning/10 text-warning",
 };
 
 const rowHighlight = {
   low: "border-l-2 border-l-destructive",
+  slow: "border-l-2 border-l-primary",
   dead: "border-l-2 border-l-foreground/30",
   expiring: "border-l-2 border-l-warning",
 };
@@ -106,8 +108,13 @@ export default function StockMonitor() {
     fetch("http://localhost:8000/analytics/health-report")
       .then(r => r.json())
       .then(data => {
-        const slow = data.slow_moving_items.map(i => ({
+        const low = (data.low_stock_items || []).map(i => ({
           type: "low", product: i.product_name, sku: i.sku, shelf: i.shelf_code,
+          current: i.current_qty, min: i.min_qty,
+          risk: i.details?.potential_loss || 0, days: null
+        }));
+        const slow = data.slow_moving_items.map(i => ({
+          type: "slow", product: i.product_name, sku: i.sku, shelf: i.shelf_code,
           current: i.current_qty, min: i.min_qty,
           risk: i.details?.potential_loss || 0, days: null
         }));
@@ -157,12 +164,13 @@ export default function StockMonitor() {
           });
         };
 
-        const allItems = [...expiring, ...dead, ...slow];
+        const allItems = [...low, ...expiring, ...dead, ...slow];
         setStockData(dedup(allItems));
         setSummaryData([
-          { label: "Low Stock", count: data.slow_moving_count, icon: AlertTriangle, color: "text-destructive bg-destructive/10" },
+          { label: "Low Stock", count: data.low_stock_count || 0, icon: AlertTriangle, color: "text-destructive bg-destructive/10" },
+          { label: "Slow Moving", count: data.slow_moving_count, icon: TrendingDown, color: "text-primary bg-primary/10" },
           { label: "Expiring < 30d", count: data.expiry_risk_count, icon: Clock, color: "text-warning bg-warning/10" },
-          { label: "Dead Stock", count: data.dead_stock_count, icon: TrendingDown, color: "text-foreground bg-foreground/10" },
+          { label: "Dead Stock", count: data.dead_stock_count, icon: Package, color: "text-foreground bg-foreground/10" },
         ]);
         setLoading(false);
       })
@@ -184,11 +192,11 @@ export default function StockMonitor() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Stock Monitor</h1>
-        <p className="text-sm text-muted-foreground mt-1">Track alerts for low, expiring, and dead stock items.</p>
+        <p className="text-sm text-muted-foreground mt-1">Track alerts for low, slow, expiring, and dead stock items.</p>
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {summaryData.map((s, i) => (
           <motion.div
             key={s.label}
@@ -232,6 +240,7 @@ export default function StockMonitor() {
             >
               <option value="all">All Alerts</option>
               <option value="low">Low Stock</option>
+              <option value="slow">Slow Moving</option>
               <option value="dead">Dead Stock</option>
               <option value="expiring">Expiring</option>
             </select>
@@ -255,7 +264,7 @@ export default function StockMonitor() {
               <tr key={i} className={cn("border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors", rowHighlight[item.type])}>
                 <td className="py-3">
                   <span className={cn("text-[10px] uppercase font-bold px-2 py-0.5 rounded-full", typeStyles[item.type])}>
-                    {item.type === "low" ? "🔴 Low" : item.type === "dead" ? "⚫ Dead" : "🟡 Expiry"}
+                    {item.type === "low" ? "🔴 Low" : item.type === "slow" ? "🐢 Slow" : item.type === "dead" ? "⚫ Dead" : "🟡 Expiry"}
                   </span>
                 </td>
                 <td className="py-3 font-medium">{item.product}</td>

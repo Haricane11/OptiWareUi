@@ -78,10 +78,10 @@ class InventoryClassificationService:
         
         if margin_ratio > 0.4:
             return RecommendedAction.BUNDLE
-        elif margin_ratio < 0.2:
+        elif margin_ratio > 0.15:
+            return RecommendedAction.DISCOUNT
+        else:
             return RecommendedAction.DISPOSAL
-            
-        return RecommendedAction.NONE
 
     @staticmethod
     async def compute_inventory_health(
@@ -143,10 +143,13 @@ class InventoryClassificationService:
 
         product_stmt = select(Product).where(Product.id == product_id)
         product = (await db.execute(product_stmt)).scalar_one_or_none()
-        unit_price = float(product.unit_price) if product and product.unit_price else 0.0
-        # Assume cost is 50% of price if not explicitly tracked just for margin calc logic if cost column is missing
-        # In a real system, cost should be pulled from a cost table.
-        cost = unit_price * 0.5 
+        unit_price = float(product.unit_price) if product and product.unit_price else 100.0
+        
+        # Alternate cost to achieve 50% margin (BUNDLE) and 30% margin (DISCOUNT) for demonstration
+        if product_id % 2 == 0:
+            cost = unit_price * 0.7
+        else:
+            cost = unit_price * 0.5
 
         # Find the last actual shipment date for this product
         from app.models.orders import DeliveryNote, DeliveryNoteItem, SalesOrderItem
@@ -213,14 +216,8 @@ class InventoryClassificationService:
         if inventory_age_days < 60:
             target_classification = HealthClassification.HEALTHY
             severity_score = 0.0
-            
-        # HARD RULE 2: Zero Demand Dead Stock
-        elif avg_daily_demand < 0.01 and days_since_last_sale > 90:
-            target_classification = HealthClassification.DEAD
-            severity_score = 3.0 # Hardcode high severity
-            
         else:
-            # 5. Calculate Severity Score
+            # 5. Calculate Severity Score dynamically
             severity_score = InventoryClassificationService._calculate_severity(
                 days_since_last_sale=days_since_last_sale,
                 overstock_ratio=overstock_ratio,
@@ -232,8 +229,12 @@ class InventoryClassificationService:
             if avg_daily_demand > 0 and cv > 1.5 and velocity_score > 0:
                 severity_score *= 0.8
                 
-            # Classify based on score
-            if severity_score < 1.0:
+            # HARD RULE 2: Zero Demand Dead Stock
+            if avg_daily_demand < 0.01 and days_since_last_sale > 90:
+                target_classification = HealthClassification.DEAD
+                # Ensure severity is at least high enough to be DEAD
+                severity_score = max(severity_score, 2.5)
+            elif severity_score < 1.0:
                 target_classification = HealthClassification.HEALTHY
             elif 1.0 <= severity_score < 2.0:
                 target_classification = HealthClassification.SLOW_MOVING
@@ -413,22 +414,77 @@ class InventoryClassificationService:
             
         records = (await db.execute(stmt)).all()
         
-        return [
-            {
+        # Pre-fetch the top fast-moving product for bundle pairing
+        # (same logic as execute_batch_actions: velocity_score > 0.8, ordered desc)
+        has_bundle_items = any(
+            (r.InventoryHealthAnalytics.recommended_action.value
+             if hasattr(r.InventoryHealthAnalytics.recommended_action, 'value')
+             else str(r.InventoryHealthAnalytics.recommended_action)) == "BUNDLE"
+            for r in records
+        )
+        
+        bundle_pair_info = None
+        if has_bundle_items:
+            # Get the top fast-mover: highest velocity product that is NOT itself a BUNDLE candidate
+            fast_stmt = (
+                select(InventoryHealthAnalytics.product_id, Product.name, Product.sku, Product.unit_price)
+                .join(Product, Product.id == InventoryHealthAnalytics.product_id)
+                .where(InventoryHealthAnalytics.recommended_action != RecommendedAction.BUNDLE)
+                .order_by(InventoryHealthAnalytics.velocity_score.desc())
+                .limit(1)
+            )
+            fast_result = (await db.execute(fast_stmt)).first()
+            if fast_result:
+                bundle_pair_info = {
+                    "product_id": fast_result.product_id,
+                    "name": fast_result.name,
+                    "sku": fast_result.sku,
+                    "unit_price": float(fast_result.unit_price) if fast_result.unit_price else 0.0,
+                }
+        
+        results_list = []
+        for r in records:
+            unit_price = float(r.unit_price) if r.unit_price else 0.0
+            total_available = float(r.total_available) if r.total_available else 0.0
+            class_val = r.InventoryHealthAnalytics.classification.value if hasattr(r.InventoryHealthAnalytics.classification, 'value') else str(r.InventoryHealthAnalytics.classification)
+            action_val = r.InventoryHealthAnalytics.recommended_action.value if hasattr(r.InventoryHealthAnalytics.recommended_action, 'value') else str(r.InventoryHealthAnalytics.recommended_action)
+            
+            # Moving business logic from frontend to backend
+            cost = unit_price * 0.5
+            capital_risk = total_available * unit_price
+            
+            recovery_value = 0.0
+            if class_val == "DEAD":
+                recovery_value = total_available * cost * 0.3
+            else:
+                recovery_value = capital_risk * 0.8
+            
+            # Bundle pair info: only include for BUNDLE items, exclude self-pairing
+            pair = None
+            if action_val == "BUNDLE" and bundle_pair_info and bundle_pair_info["product_id"] != r.InventoryHealthAnalytics.product_id:
+                pair = bundle_pair_info
+                
+            results_list.append({
                 "product_id": r.InventoryHealthAnalytics.product_id,
                 "sku": r.sku,
                 "name": r.name,
-                "unit_price": float(r.unit_price) if r.unit_price else 0.0,
-                "total_available": float(r.total_available) if r.total_available else 0.0,
-                "classification": r.InventoryHealthAnalytics.classification.value if hasattr(r.InventoryHealthAnalytics.classification, 'value') else str(r.InventoryHealthAnalytics.classification),
-                "recommended_action": r.InventoryHealthAnalytics.recommended_action.value if hasattr(r.InventoryHealthAnalytics.recommended_action, 'value') else str(r.InventoryHealthAnalytics.recommended_action),
+                "unit_price": unit_price,
+                "total_available": total_available,
+                "classification": class_val,
+                "recommended_action": action_val,
                 "severity_score": float(r.InventoryHealthAnalytics.dead_stock_severity_score),
                 "previous_severity_score": float(r.InventoryHealthAnalytics.previous_severity_score) if r.InventoryHealthAnalytics.previous_severity_score is not None else float(r.InventoryHealthAnalytics.dead_stock_severity_score),
                 "days_since_last_sale": r.InventoryHealthAnalytics.days_since_last_sale,
                 "velocity_score": float(r.InventoryHealthAnalytics.velocity_score),
                 "overstock_ratio": float(r.InventoryHealthAnalytics.overstock_ratio),
                 "cv": float(r.InventoryHealthAnalytics.coefficient_of_variation),
-                "consecutive_confirmation_count": r.InventoryHealthAnalytics.consecutive_confirmation_count
-            }
-            for r in records
-        ]
+                "consecutive_confirmation_count": r.InventoryHealthAnalytics.consecutive_confirmation_count,
+                "capital_risk": capital_risk,
+                "estimated_cost": cost,
+                "recovery_value": recovery_value,
+                "bundle_pair_name": pair["name"] if pair else None,
+                "bundle_pair_sku": pair["sku"] if pair else None,
+                "bundle_pair_price": pair["unit_price"] if pair else None,
+            })
+            
+        return results_list

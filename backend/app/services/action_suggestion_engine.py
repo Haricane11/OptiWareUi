@@ -637,9 +637,10 @@ class ActionSuggestionEngine:
         dead = await InventoryHealthService.detect_dead_stock(db, config)
         slow = await InventoryHealthService.detect_slow_moving(db, config)
         expiry = await InventoryHealthService.detect_expiry_risk(db, config)
+        low = await InventoryHealthService.detect_low_stock(db, config)
 
         # Persist all
-        all_statuses = dead + slow + expiry
+        all_statuses = dead + slow + expiry + low
         await InventoryHealthService.persist_statuses(db, all_statuses)
 
         # Generate suggestions
@@ -653,6 +654,7 @@ class ActionSuggestionEngine:
             "dead_stock_detected": len(dead),
             "slow_moving_detected": len(slow),
             "expiry_risk_detected": len(expiry),
+            "low_stock_detected": len(low),
             "suggestions_generated": len(suggestions),
             "scan_duration_seconds": duration,
         }

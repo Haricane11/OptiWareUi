@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "C:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\backend\test_scan.py", line 2, in <module>
+    from app.core.database import SessionLocal
+ImportError: cannot import name 'SessionLocal' from 'app.core.database' (C:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\backend\app\core\database.py)

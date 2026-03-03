@@ -6,6 +6,7 @@ import {
   LayoutDashboard, ShoppingCart, FileText, Receipt, Truck, Package,
   Layers, Eye, AlertTriangle, DollarSign, RefreshCw, Settings, LayoutGrid,
   ChevronLeft, ChevronRight, LogOut, Users, Bell, ArrowDownCircle,
+  Tag,
 } from "lucide-react";
 import OptiWareLogo from "@/components/OptiWareLogo";
 import { NavLink } from "@/components/NavLink";
@@ -78,6 +79,8 @@ export default function ManagerLayout({ children }) {
         { title: "Stock Monitor", url: "/manager/stock-monitor", icon: AlertTriangle },
         { title: "Financial Loss", url: "/manager/financial-loss", icon: DollarSign },
         { title: "Reorder Decisions", url: "/manager/reorder-decisions", icon: RefreshCw },
+        { title: "Bundles", url: "/manager/bundles", icon: Package },
+        { title: "Discounted Items", url: "/manager/discounts", icon: Tag },
         { title: "Products", url: "/manager/products", icon: Package },
       ],
     },
@@ -193,7 +196,7 @@ export default function ManagerLayout({ children }) {
       {/* Main Content */}
       <main
         className={cn(
-          "flex-1 transition-all duration-300 h-screen flex flex-col overflow-hidden",
+          "flex-1 transition-all duration-300 min-h-screen flex flex-col overflow-y-auto overflow-x-hidden",
           collapsed ? "ml-16" : "ml-60"
         )}
       >

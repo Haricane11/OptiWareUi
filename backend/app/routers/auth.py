@@ -10,10 +10,9 @@ async def login(req: LoginRequest):
     cur = conn.cursor()
     try:
         cur.execute("""
-            SELECT u.*, z.zone_name, f.floor_number 
+            SELECT u.*, w.name as warehouse_name 
             FROM users u
-            LEFT JOIN zones z ON u.zone_id = z.id
-            LEFT JOIN floors f ON z.floor_id = f.id
+            LEFT JOIN warehouses w ON u.warehouse_id = w.id
             WHERE u.username = %s
         """, (req.username,))
         user = cur.fetchone()
@@ -39,10 +38,9 @@ async def get_me(username: str):
     cur = conn.cursor()
     try:
         cur.execute("""
-            SELECT u.*, z.zone_name, f.floor_number 
+            SELECT u.*, w.name as warehouse_name 
             FROM users u
-            LEFT JOIN zones z ON u.zone_id = z.id
-            LEFT JOIN floors f ON z.floor_id = f.id
+            LEFT JOIN warehouses w ON u.warehouse_id = w.id
             WHERE u.username = %s
         """, (username,))
         user = cur.fetchone()

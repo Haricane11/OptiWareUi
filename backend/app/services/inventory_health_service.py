@@ -18,6 +18,7 @@ from app.models.products import Product
 from app.models.orders import SalesOrder, SalesOrderItem, DeliveryNote, DeliveryNoteItem
 from app.models.receipt import Receipt, ReceiptItem
 from app.models.supplier import Supplier
+from app.models.reorder_policy import ReorderPolicy
 from app.models.inventory_health import (
     InventoryHealthStatus,
     InventoryActionSuggestion,
@@ -190,6 +191,8 @@ class InventoryHealthService:
             .where(
                 Inventory.status == "ACTIVE",
                 Inventory.quantity > 0,
+                # Exclude items that have ZERO sales AND no recent outbound movement (these are DEAD stock)
+                func.coalesce(sold_subq.c.sold_qty, 0) > 0,
             )
             .group_by(
                 Inventory.product_id,
@@ -306,6 +309,87 @@ class InventoryHealthService:
         logger.info("Expiry scan: %d issues detected", len(health_records))
         return health_records
 
+    # ── Low Stock Detection ───────────────────────────────────────────
+
+    @staticmethod
+    async def detect_low_stock(
+        db: AsyncSession,
+        config: InventoryOptimizationConfig,
+    ) -> list[InventoryHealthStatus]:
+        """
+        Low stock = total available quantity < reorder_point from ReorderPolicy.
+        Severity = min(100, (1 - available/reorder_point) * 100).
+        Only considers products that DO have a reorder policy set.
+        """
+        avail_subq = (
+            func.coalesce(
+                select(func.sum(Inventory.available))
+                .where(
+                    Inventory.product_id == Product.id,
+                    Inventory.status == "ACTIVE",
+                )
+                .correlate(Product)
+                .scalar_subquery(),
+                0,
+            )
+        )
+
+        wh_subq = (
+            func.coalesce(
+                select(func.max(Inventory.warehouse_id))
+                .where(Inventory.product_id == Product.id)
+                .correlate(Product)
+                .scalar_subquery(),
+                1,
+            )
+        )
+
+        stmt = (
+            select(
+                Product.id.label("product_id"),
+                wh_subq.label("warehouse_id"),
+                avail_subq.label("total_available"),
+                ReorderPolicy.reorder_point,
+                Product.unit_price.label("unit_price"),
+            )
+            .join(ReorderPolicy, Product.id == ReorderPolicy.product_id)
+            .where(
+                ReorderPolicy.reorder_point.isnot(None),
+                ReorderPolicy.reorder_point > 0,
+                avail_subq <= ReorderPolicy.reorder_point,
+            )
+        )
+
+        result = await db.execute(stmt)
+        rows = result.all()
+
+        health_records = []
+
+        for row in rows:
+            total_avail = float(row.total_available)
+            rop = float(row.reorder_point)
+            cost = float(row.unit_price) if row.unit_price else 0.0
+            deficit = rop - total_avail
+            severity = min(100.0, max(0.0, (deficit / rop) * 100))
+
+            health_records.append(
+                InventoryHealthStatus(
+                    product_id=row.product_id,
+                    warehouse_id=row.warehouse_id,
+                    health_type=HealthType.LOW,
+                    severity_score=Decimal(str(round(severity, 2))),
+                    details={
+                        "total_available": total_avail,
+                        "reorder_point": rop,
+                        "deficit": round(deficit, 2),
+                        "potential_loss": round(deficit * cost, 2),
+                    },
+                )
+            )
+
+        logger.info("Low stock scan: %d issues detected", len(health_records))
+        return health_records
+
     # ── Resolve old statuses ──────────────────────────────────────────
 
     @staticmethod
@@ -358,6 +442,7 @@ class InventoryHealthService:
         dead = [s for s in all_statuses if s.health_type == HealthType.DEAD]
         slow = [s for s in all_statuses if s.health_type == HealthType.SLOW]
         expiry = [s for s in all_statuses if s.health_type == HealthType.EXPIRY]
+        low = [s for s in all_statuses if s.health_type == HealthType.LOW]
 
         # Calculate total value at risk from details and populate UI fields
         total_value = 0.0
@@ -392,10 +477,12 @@ class InventoryHealthService:
             "dead_stock_count": len(dead),
             "slow_moving_count": len(slow),
             "expiry_risk_count": len(expiry),
+            "low_stock_count": len(low),
             "total_value_at_risk": round(total_value, 2),
             "dead_stock_items": dead,
             "slow_moving_items": slow,
             "expiry_risk_items": expiry,
+            "low_stock_items": low,
         }
 
     # ── Get Suggestions ───────────────────────────────────────────────

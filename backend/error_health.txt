@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "C:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\backend\trigger_health_run.py", line 9, in trigger
+    summary = await ActionSuggestionEngine.run_health_check(db)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'ActionSuggestionEngine' has no attribute 'run_health_check'
+
+
+type object 'ActionSuggestionEngine' has no attribute 'run_health_check'

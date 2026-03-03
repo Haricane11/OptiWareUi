@@ -2,9 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Package, Activity, Search, CalendarDays, DollarSign, Tag, TrendingUp, Layers, ChevronLeft, ChevronRight, Loader2 as LoadingIcon } from "lucide-react";
+import { Package, Activity, Search, CalendarDays, DollarSign, Tag, TrendingUp, Layers, ChevronLeft, ChevronRight, Loader2 as LoadingIcon, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { getProducts } from "@/lib/api/products";
 
 const PAGE_SIZE = 12;
 
@@ -72,6 +77,10 @@ export default function BundlesPage() {
   const [activeTab, setActiveTab] = useState("bundles");
   const [bundles, setBundles] = useState([]);
   const [bundleSales, setBundleSales] = useState([]);
+  const [allProducts, setAllProducts] = useState([]);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [newBundleParams, setNewBundleParams] = useState({ bundle_name: "", bundle_price: "", item1_id: "", item1_qty: 1, item2_id: "", item2_qty: 1 });
+  const [isCreating, setIsCreating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [bundlesPage, setBundlesPage] = useState(1);
   const [salesPage, setSalesPage] = useState(1);
@@ -85,13 +94,15 @@ export default function BundlesPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [bundlesRes, salesRes] = await Promise.all([
+      const [bundlesRes, salesRes, productsData] = await Promise.all([
         fetch("http://localhost:8000/analytics/bundles"),
-        fetch("http://localhost:8000/analytics/bundles/sales")
+        fetch("http://localhost:8000/analytics/bundles/sales"),
+        getProducts()
       ]);
       
       if (bundlesRes.ok) setBundles(await bundlesRes.json());
       if (salesRes.ok) setBundleSales(await salesRes.json());
+      setAllProducts(productsData || []);
     } catch (error) {
       console.error("Failed to fetch bundle data", error);
       toast.error("Failed to load bundles data.");
@@ -230,6 +241,51 @@ export default function BundlesPage() {
     return matchesBundle || matchesOrder;
   });
 
+  // dynamic add/remove items handles removed since we enforce exactly 2 items now
+  const handleCreateBundle = async () => {
+     if (!newBundleParams.bundle_name || !newBundleParams.bundle_price || !newBundleParams.item1_id || !newBundleParams.item2_id) {
+        toast.error("Please fill in bundle name, price, and select both items.");
+        return;
+     }
+     
+     if (newBundleParams.item1_id === newBundleParams.item2_id) {
+        toast.error("Please select two distinct items for the bundle.");
+        return;
+     }
+     
+     setIsCreating(true);
+     try {
+       const payload = {
+         bundle_name: newBundleParams.bundle_name,
+         bundle_price: parseFloat(newBundleParams.bundle_price),
+         items: [
+           { product_id: parseInt(newBundleParams.item1_id), quantity: parseInt(newBundleParams.item1_qty) },
+           { product_id: parseInt(newBundleParams.item2_id), quantity: parseInt(newBundleParams.item2_qty) }
+         ]
+       };
+
+       const res = await fetch("http://localhost:8000/analytics/bundles/manual", {
+         method: "POST",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify(payload)
+       });
+
+       if (res.ok) {
+         toast.success("Custom bundle created successfully!");
+         setNewBundleParams({ bundle_name: "", bundle_price: "", item1_id: "", item1_qty: 1, item2_id: "", item2_qty: 1 });
+         setIsCreateModalOpen(false);
+         fetchData();
+       } else {
+         const data = await res.json();
+         toast.error(data.detail || "Failed to create bundle");
+       }
+     } catch (e) {
+       toast.error("Network error while creating bundle");
+     } finally {
+       setIsCreating(false);
+     }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end">
@@ -237,6 +293,9 @@ export default function BundlesPage() {
           <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">Virtual Bundles</h1>
           <p className="text-sm text-muted-foreground mt-1">Manage product bundles and track bundle sales performance.</p>
         </div>
+        <Button onClick={() => setIsCreateModalOpen(true)} className="flex items-center gap-2">
+          <Plus size={16} /> Add Custom Bundle
+        </Button>
       </div>
 
       {/* Summary Cards */}
@@ -515,6 +574,79 @@ export default function BundlesPage() {
           )}
         </AnimatePresence>
       </div>
+      {/* Create Custom Bundle Modal */}
+      <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create Custom Bundle</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+               <div>
+                 <Label>Bundle Name</Label>
+                 <Input 
+                   placeholder="e.g. Summer Promo Kit" 
+                   value={newBundleParams.bundle_name}
+                   onChange={e => setNewBundleParams({...newBundleParams, bundle_name: e.target.value})}
+                 />
+               </div>
+               <div>
+                 <Label>Bundle Price ($)</Label>
+                 <Input 
+                   type="number" step="0.01" min="0" placeholder="0.00"
+                   value={newBundleParams.bundle_price}
+                   onChange={e => setNewBundleParams({...newBundleParams, bundle_price: e.target.value})}
+                 />
+               </div>
+            </div>
+            
+            <div className="border border-border/50 p-4 rounded-xl space-y-3 bg-muted/10 mt-2">
+               <Label className="font-semibold text-primary">Item 1</Label>
+               <div className="flex gap-2 mb-4">
+                 <select 
+                    className="flex-1 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={newBundleParams.item1_id}
+                    onChange={e => setNewBundleParams({...newBundleParams, item1_id: e.target.value})}
+                 >
+                    <option value="">Select first product...</option>
+                    {allProducts.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku}) - ${p.unit_price}</option>)}
+                 </select>
+                 <Input 
+                   type="number" min="1" className="w-20" placeholder="Qty"
+                   value={newBundleParams.item1_qty}
+                   onChange={e => setNewBundleParams({...newBundleParams, item1_qty: e.target.value})}
+                 />
+               </div>
+
+               <Label className="font-semibold text-primary">Item 2</Label>
+               <div className="flex gap-2">
+                 <select 
+                    className="flex-1 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={newBundleParams.item2_id}
+                    onChange={e => setNewBundleParams({...newBundleParams, item2_id: e.target.value})}
+                 >
+                    <option value="">Select second product...</option>
+                    {allProducts.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku}) - ${p.unit_price}</option>)}
+                 </select>
+                 <Input 
+                   type="number" min="1" className="w-20" placeholder="Qty"
+                   value={newBundleParams.item2_qty}
+                   onChange={e => setNewBundleParams({...newBundleParams, item2_qty: e.target.value})}
+                 />
+               </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCreateModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateBundle} disabled={isCreating || !newBundleParams.item1_id || !newBundleParams.item2_id}>
+              {isCreating ? <LoadingIcon size={14} className="animate-spin mr-2" /> : null}
+              {isCreating ? "Creating..." : "Create Bundle"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

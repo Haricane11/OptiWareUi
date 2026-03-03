@@ -21,6 +21,7 @@ class HealthClassification(str, enum.Enum):
 class RecommendedAction(str, enum.Enum):
     NONE = "NONE"
     BUNDLE = "BUNDLE"
+    DISCOUNT = "DISCOUNT"
     DISPOSAL = "DISPOSAL"
 
 

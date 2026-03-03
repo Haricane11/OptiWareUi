@@ -10,6 +10,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useToast } from "@/components/ui/use-toast";
+
 const API = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 const PAGE_SIZE = 50; // Increased since it's an analytics dashboard now
 
@@ -146,6 +149,7 @@ function MiniProgressBar({ value, max, label, colorClass }) {
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 export default function InventoryRiskDashboard() {
+  const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   
@@ -159,6 +163,11 @@ export default function InventoryRiskDashboard() {
   
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [batchLoading, setBatchLoading] = useState(false);
+  
+  // Custom manual pairs config: product_id -> pair_product_id
+  const [manualPairs, setManualPairs] = useState({});
+  const [allProducts, setAllProducts] = useState([]);
+  const [editingPairId, setEditingPairId] = useState(null);
 
   // Portfolio aggregates
   const [portfolioStats, setPortfolioStats] = useState({
@@ -174,24 +183,27 @@ export default function InventoryRiskDashboard() {
       const res = await fetch(url);
       const data = await res.json();
       
-      setItems(data);
+      const parsedItems = Array.isArray(data) ? data : (data.summary ? data.summary : []);
+      setItems(parsedItems);
       
       // Calculate Portfolio Metrics
       let deadCap = 0, slowCap = 0;
       let sumVelocity = 0, sumOverstock = 0;
       let counts = { HEALTHY: 0, SLOW_MOVING: 0, DEAD: 0 };
       
-      data.forEach(item => {
-        const cap = (item.total_available ?? 0) * (item.unit_price ?? 0);
+      parsedItems.forEach(item => {
+        // We ensure item values are treated as numbers
+        const cap = Number(item.capital_risk) || ((Number(item.total_available) || 0) * (Number(item.unit_price) || 0));
+        
         if (item.classification === "DEAD") deadCap += cap;
         if (item.classification === "SLOW_MOVING") slowCap += cap;
         
-        counts[item.classification] = (counts[item.classification] || 0) + 1;
-        sumVelocity += (item.velocity_score ?? 0);
-        sumOverstock += (item.overstock_ratio ?? 0);
+        counts[item.classification || "HEALTHY"] = (counts[item.classification || "HEALTHY"] || 0) + 1;
+        sumVelocity += (Number(item.velocity_score) || 0);
+        sumOverstock += (Number(item.overstock_ratio) || 0);
       });
       
-      const total = data.length || 1;
+      const total = parsedItems.length || 1;
       setPortfolioStats({
         totalAtRisk: deadCap + slowCap,
         deadCapital: deadCap,
@@ -214,6 +226,19 @@ export default function InventoryRiskDashboard() {
     fetchAll();
   }, [sortBy, sortOrder]);
 
+  useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        const res = await fetch(`${API}/products/?limit=1000`);
+        const data = await res.json();
+        setAllProducts(data.items || data);
+      } catch (e) {
+        console.error("Failed to load products for manual pairing:", e);
+      }
+    };
+    fetchProducts();
+  }, []);
+
   const runScan = async () => {
     setScanning(true);
     try {
@@ -226,11 +251,15 @@ export default function InventoryRiskDashboard() {
 
   // ─── Frontend Filtering & Pagination
   const filteredItems = items.filter(item => {
-    if (searchQuery && !item.name.toLowerCase().includes(searchQuery.toLowerCase()) && !item.sku.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (searchQuery && 
+       !(item.name || "").toLowerCase().includes(searchQuery.toLowerCase()) && 
+       !(item.sku || "").toLowerCase().includes(searchQuery.toLowerCase())) {
+        return false;
+    }
     
     if (statusFilter === "all") return true;
-    if (statusFilter === "Stabilizing") return item.consecutive_confirmation_count > 0 && item.consecutive_confirmation_count < 2;
-    if (statusFilter === "Healthy") return item.classification === "HEALTHY";
+    
+    if (statusFilter === "Healthy") return (item.classification === "HEALTHY" || !item.classification);
     if (statusFilter === "Slow") return item.classification === "SLOW_MOVING";
     if (statusFilter === "Dead") return item.classification === "DEAD";
     return true;
@@ -278,13 +307,46 @@ export default function InventoryRiskDashboard() {
   };
 
   const doBatchAction = async () => {
-    // In a real app, this would dispatch bulk action suggestions
+    if (selectedIds.size === 0) return;
     setBatchLoading(true);
-    setTimeout(() => {
-        alert(`Executed bulk strategy for ${selectedIds.size} items!`);
+    try {
+      const res = await fetch(`${API}/inventory-health/execute-actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          product_ids: Array.from(selectedIds),
+          manual_pairs: manualPairs
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast({
+          title: "Strategy Executed",
+          description: data.message || `Executed bulk strategy for ${selectedIds.size} items!`,
+          variant: "default",
+        });
         setSelectedIds(new Set());
-        setBatchLoading(false);
-    }, 1000);
+        // Force recalculate after execution to update metrics
+        await runScan();
+      } else {
+        throw new Error(data.detail || "Failed to execute actions");
+      }
+    } catch (error) {
+       toast({
+         title: "Execution Error",
+         description: error.message,
+         variant: "destructive",
+       });
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
+  const executeSingleAction = async (product_id) => {
+      setSelectedIds(new Set([product_id]));
+      setTimeout(() => {
+          doBatchAction();
+      }, 0);
   };
 
   const getSortIcon = (field) => {
@@ -367,7 +429,7 @@ export default function InventoryRiskDashboard() {
           {/* Toolbar */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 border-b border-border/50 bg-muted/10">
             <div className="flex items-center gap-2">
-              {["all", "Healthy", "Slow", "Dead", "Stabilizing"].map(st => {
+              {["all", "Healthy", "Slow", "Dead"].map(st => {
                 const isActive = statusFilter === st;
                 const activeStyle = "bg-primary text-primary-foreground shadow-sm ring-2 ring-primary/30";
                 
@@ -456,10 +518,9 @@ export default function InventoryRiskDashboard() {
                       const outcome = actionOutcome[s.recommended_action] || actionOutcome.NONE;
                       const isExpanded = expandedRow === s.product_id;
                       
-                      const cost = s.unit_price * 0.5; // Demo logic matching backend
-                      const totalCap = s.total_available * s.unit_price;
-                      // 30% recovery estimate for DEAD
-                      const recoveryVal = s.classification === "DEAD" ? s.total_available * cost * 0.3 : totalCap * 0.8;
+                      const cost = s.estimated_cost || ((s.unit_price || 0) * 0.5);
+                      const totalCap = s.capital_risk || ((s.total_available ?? 0) * (s.unit_price ?? 0));
+                      const recoveryVal = s.recovery_value || (s.classification === "DEAD" ? (s.total_available ?? 0) * cost * 0.3 : totalCap * 0.8);
                       
                       return (
                         <React.Fragment key={s.product_id}>
@@ -467,7 +528,7 @@ export default function InventoryRiskDashboard() {
                             initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(i * 0.02, 0.2) }}
                             onClick={() => setExpandedRow(isExpanded ? null : s.product_id)}
                             className={cn("border-b border-border/40 last:border-0 cursor-pointer transition-colors align-middle",
-                              selectedIds.has(s.product_id) ? "bg-primary/5 dark:bg-primary/10" : isExpanded ? "bg-muted/30" : "hover:bg-muted/10"
+                                selectedIds.has(s.product_id) ? "bg-primary/5 dark:bg-primary/10" : isExpanded ? "bg-muted/30" : "hover:bg-muted/10"
                             )}>
                             
                             <td className="px-3 py-4" onClick={e => e.stopPropagation()}>
@@ -487,11 +548,7 @@ export default function InventoryRiskDashboard() {
                               <p className="font-semibold text-sm text-foreground/90">{s.name}</p>
                               <div className="flex items-center gap-2 mt-0.5">
                                 <p className="text-[11px] text-muted-foreground font-mono">{s.sku}</p>
-                                {s.consecutive_confirmation_count > 0 && s.consecutive_confirmation_count < 2 && (
-                                    <span className="text-[9px] bg-warning/20 text-warning dark:text-warning px-1.5 rounded font-bold uppercase tracking-widest">
-                                        Stabilizing ({s.consecutive_confirmation_count}/2)
-                                    </span>
-                                )}
+                
                               </div>
                             </td>
                             
@@ -508,9 +565,29 @@ export default function InventoryRiskDashboard() {
                             </td>
                             
                             <td className="px-4 py-4" onClick={e => e.stopPropagation()}>
-                                <div className={cn("inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-md border", typeColor[s.recommended_action] || "text-success bg-success/10 border-success/20")}>
-                                    <Icon size={12} strokeWidth={2.5}/>
-                                    {typeLabel[s.recommended_action] || "Monitor"}
+                                <div className="flex items-center gap-2">
+                                  {s.classification !== "HEALTHY" && s.recommended_action !== "NONE" && (
+                                     <button 
+                                        onClick={() => executeSingleAction(s.product_id)}
+                                        className={cn(
+                                            "flex items-center gap-1.5 px-2 py-1.5 text-xs font-bold rounded-md shadow-sm transition-all hover:-translate-y-0.5",
+                                            s.recommended_action === "DISPOSAL" ? "bg-destructive text-white hover:bg-destructive/90" : 
+                                            "bg-primary text-white hover:bg-primary/90"
+                                        )}
+                                        title="Execute Action"
+                                     >
+                                        <Play size={12}/> Execute
+                                     </button>
+                                  )}
+                                  <div className={cn("inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-md border shrink-0", typeColor[s.recommended_action] || "text-success bg-success/10 border-success/20")}>
+                                      <Icon size={12} strokeWidth={2.5}/>
+                                      {typeLabel[s.recommended_action] || "Monitor"}
+                                  </div>
+                                  {s.recommended_action === "BUNDLE" && s.bundle_pair_name && (
+                                    <p className="text-[10px] text-muted-foreground font-medium mt-0.5 truncate max-w-[160px]" title={`Pair with ${s.bundle_pair_name}`}>
+                                      + {s.bundle_pair_name}
+                                    </p>
+                                  )}
                                 </div>
                             </td>
                           </motion.tr>
@@ -549,7 +626,7 @@ export default function InventoryRiskDashboard() {
                                          </p>
                                          <div className="pt-2 mt-2 border-t border-border/50 flex items-center gap-2 justify-between">
                                             <span>Margin Target Status:</span>
-                                            <span className="font-bold">{(100 * ((s.unit_price - cost) / (s.unit_price||1))).toFixed(0)}% Margin</span>
+                                            <span className="font-bold">{(100 * (((s.unit_price ?? 0) - cost) / (s.unit_price||1))).toFixed(0)}% Margin</span>
                                          </div>
                                       </div>
                                     </div>
@@ -567,7 +644,7 @@ export default function InventoryRiskDashboard() {
                                             {outcome.proceed}
                                           </p>
                                           
-                                          {s.classification === "DEAD" && (
+                                            {s.classification === "DEAD" && (
                                             <div className="bg-destructive/10 text-destructive dark:text-destructive p-2 text-xs rounded font-semibold mt-2">
                                                 Warning: Capital trap risk is critical due to severity score {(s.severity_score ?? 0).toFixed(2)} &gt; 2.0. Immediate liquidation recommended.
                                             </div>
@@ -576,6 +653,156 @@ export default function InventoryRiskDashboard() {
                                             <div className="bg-success/10 text-success dark:text-success p-2 text-xs rounded font-semibold mt-2">
                                                 High margin logic detected. Preserving profitability via bundle creation instead of raw discounting.
                                             </div>
+                                          )}
+                                          {s.recommended_action === "BUNDLE" && s.bundle_pair_name && (
+                                            <div className="mt-3 p-3 bg-muted/30 rounded-lg border border-border/50">
+                                              <div className="flex items-center justify-between mb-2">
+                                                <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Bundle Composition</p>
+                                                <button 
+                                                  onClick={() => setEditingPairId(editingPairId === s.product_id ? null : s.product_id)}
+                                                  className="text-[10px] font-semibold text-primary/70 hover:text-primary transition-colors underline-offset-2 hover:underline">
+                                                  {editingPairId === s.product_id ? "Cancel Change" : "Change Pair"}
+                                                </button>
+                                              </div>
+                                              
+                                              <AnimatePresence>
+                                                {editingPairId === s.product_id && (
+                                                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mb-3 space-y-2">
+                                                    <div className="text-[10px] text-muted-foreground mb-1">Select exactly 2 items to pair with this slow-moving product:</div>
+                                                    
+                                                    {/* Dropdown 1 */}
+                                                    <select 
+                                                      className="w-full text-xs p-2 border border-border rounded-md bg-background focus:ring-1 focus:ring-primary outline-none"
+                                                      value={(manualPairs[s.product_id] || [])[0] || ''}
+                                                      onChange={(e) => {
+                                                        const targetId = Number(e.target.value);
+                                                        setManualPairs(prev => {
+                                                          const current = prev[s.product_id] || [];
+                                                          const next = [targetId, current[1]].filter(Boolean);
+                                                          return { ...prev, [s.product_id]: next };
+                                                        });
+                                                      }}
+                                                    >
+                                                      <option value="">-- Select First Pair Product --</option>
+                                                      {allProducts.map(p => (
+                                                        <option key={p.id} value={p.id}>
+                                                          {p.name} ({p.sku}) - {formatCurrency(p.unit_price)}
+                                                        </option>
+                                                      ))}
+                                                    </select>
+
+                                                    {/* Dropdown 2 */}
+                                                    <select 
+                                                      className="w-full text-xs p-2 border border-border rounded-md bg-background focus:ring-1 focus:ring-primary outline-none"
+                                                      value={(manualPairs[s.product_id] || [])[1] || ''}
+                                                      onChange={(e) => {
+                                                        const targetId = Number(e.target.value);
+                                                        setManualPairs(prev => {
+                                                          const current = prev[s.product_id] || [];
+                                                          const next = [current[0], targetId].filter(Boolean);
+                                                          return { ...prev, [s.product_id]: next };
+                                                        });
+                                                      }}
+                                                    >
+                                                      <option value="">-- Select Second Pair Product --</option>
+                                                      {allProducts.map(p => (
+                                                        <option key={p.id} value={p.id}>
+                                                          {p.name} ({p.sku}) - {formatCurrency(p.unit_price)}
+                                                        </option>
+                                                      ))}
+                                                    </select>
+                                                    
+                                                    <div className="flex justify-end pt-1">
+                                                      <button 
+                                                        onClick={() => setEditingPairId(null)}
+                                                        className="text-[10px] bg-primary text-white px-3 py-1 rounded"
+                                                      >
+                                                        Done
+                                                      </button>
+                                                    </div>
+                                                  </motion.div>
+                                                )}
+                                              </AnimatePresence>
+                                              
+                                              {(() => {
+                                                // Resolve current pair display values
+                                                let pairedItems = [];
+                                                
+                                                const manualIds = manualPairs[s.product_id] || [];
+                                                if (manualIds.length > 0) {
+                                                  // Use manually selected items
+                                                  manualIds.forEach(id => {
+                                                    const fp = allProducts.find(p => p.id === id);
+                                                    if (fp) {
+                                                      pairedItems.append({
+                                                        name: fp.name,
+                                                        sku: fp.sku,
+                                                        price: fp.unit_price,
+                                                        isManual: true
+                                                      });
+                                                    }
+                                                  });
+                                                } else if (s.bundle_pair_name) {
+                                                  // Fallback to auto pair
+                                                  pairedItems.push({
+                                                    name: s.bundle_pair_name,
+                                                    sku: s.bundle_pair_sku,
+                                                    price: s.bundle_pair_price,
+                                                    isManual: false
+                                                  });
+                                                }
+                                                
+                                                const totalFastPrice = pairedItems.reduce((sum, item) => sum + item.price, 0);
+                                                
+                                                return (
+                                                  <div className="flex items-center gap-2 text-sm flex-wrap">
+                                                    <div className="flex-1 min-w-[120px] p-2 bg-background rounded border border-border/40">
+                                                      <p className="font-semibold text-foreground/90 text-xs">{s.name}</p>
+                                                      <p className="text-[10px] text-muted-foreground font-mono">{s.sku}</p>
+                                                      <p className="text-[10px] text-muted-foreground mt-0.5">{formatCurrency(s.unit_price)}</p>
+                                                    </div>
+                                                    
+                                                    {pairedItems.map((pi, i) => (
+                                                      <React.Fragment key={i}>
+                                                        <span className="text-primary font-bold text-lg">+</span>
+                                                        <div className="flex-1 min-w-[120px] p-2 bg-background rounded border border-primary/20 relative group">
+                                                          {pi.isManual && <span className="absolute -top-2 -right-2 bg-primary text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full uppercase">Manual</span>}
+                                                          <p className="font-semibold text-primary text-xs truncate" title={pi.name}>{pi.name}</p>
+                                                          <p className="text-[10px] text-muted-foreground font-mono">{pi.sku}</p>
+                                                          <p className="text-[10px] text-muted-foreground mt-0.5">{formatCurrency(pi.price)}</p>
+                                                        </div>
+                                                      </React.Fragment>
+                                                    ))}
+                                                    
+                                                    <span className="text-muted-foreground font-bold">=</span>
+                                                    <div className="p-2 bg-primary/5 rounded border border-primary/20 text-center min-w-[100px] shrink-0">
+                                                      <p className="text-[10px] text-muted-foreground">Bundle (15% off)</p>
+                                                      <p className="font-bold text-primary text-sm">{formatCurrency((s.unit_price + totalFastPrice) * 0.85)}</p>
+                                                      <p className="text-[9px] line-through text-muted-foreground">{formatCurrency(s.unit_price + totalFastPrice)}</p>
+                                                    </div>
+                                                  </div>
+                                                );
+                                              })()}
+                                            </div>
+                                          )}
+                                          {s.classification === "SLOW_MOVING" && s.recommended_action === "DISCOUNT" && (
+                                            <div className="bg-warning/10 text-warning dark:text-warning p-2 text-xs rounded font-semibold mt-2">
+                                                Moderate margin logic detected. Preserving capital flow via controlled discount strategy.
+                                            </div>
+                                          )}
+                                          
+                                          {s.classification !== "HEALTHY" && s.recommended_action !== "NONE" && (
+                                              <div className="pt-3 mt-1 flex">
+                                                <button 
+                                                    onClick={() => executeSingleAction(s.product_id)}
+                                                    className={cn(
+                                                        "px-4 py-2 text-xs font-bold rounded-md shadow-sm transition-all hover:-translate-y-0.5",
+                                                        s.recommended_action === "DISPOSAL" ? "bg-destructive text-white hover:bg-destructive/90" : 
+                                                        "bg-primary text-white hover:bg-primary/90"
+                                                    )}>
+                                                    Execute Strategy Now
+                                                </button>
+                                              </div>
                                           )}
                                       </div>
                                     </div>

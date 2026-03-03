@@ -1,0 +1,414 @@
+-- ==========================================
+-- 1. CORE STRUCTURE & ORGANIZATIONAL UNITS
+-- ==========================================
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'warehouse_role') THEN
+        CREATE TYPE warehouse_role AS ENUM (
+            'PRIMARY_FULFILLMENT', 'SECONDARY_OVERFLOW', 'SECURE_VAULT', 'COLD_STORAGE'
+        );
+    END IF;
+END $$;
+
+CREATE TABLE warehouses (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  location VARCHAR(500),
+  created_by INTEGER,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  width NUMERIC,
+  height NUMERIC,
+  depth NUMERIC,
+  role warehouse_role DEFAULT 'PRIMARY_FULFILLMENT',
+  code VARCHAR(10) UNIQUE,
+  status VARCHAR(20) DEFAULT 'active'
+);
+
+CREATE TABLE floors (
+  id SERIAL PRIMARY KEY,
+  warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+  floor_number INTEGER NOT NULL
+);
+
+CREATE TABLE areas (
+  id SERIAL PRIMARY KEY,
+  floor_id INTEGER NOT NULL REFERENCES floors(id),
+  area_name VARCHAR(255),
+  width NUMERIC,
+  height NUMERIC,
+  depth NUMERIC,
+  location_x NUMERIC,
+  location_y NUMERIC,
+  area_type VARCHAR(50), 
+  usage_category VARCHAR(50),
+  is_passable BOOLEAN DEFAULT true
+);
+
+CREATE TABLE zones (
+  id SERIAL PRIMARY KEY,
+  floor_id INTEGER REFERENCES floors(id),
+  zone_name VARCHAR(255),
+  zone_type VARCHAR(30) NOT NULL,
+  width NUMERIC(10,2),
+  depth NUMERIC(10,2),
+  status VARCHAR(20) DEFAULT 'active',
+  location_x NUMERIC(10,2),
+  location_y NUMERIC(10,2),
+  product_category VARCHAR(100),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  username VARCHAR(50) UNIQUE NOT NULL,
+  password VARCHAR(255) NOT NULL,
+  role VARCHAR(30) NOT NULL,
+  team VARCHAR(50),
+  warehouse_id INTEGER REFERENCES warehouses(id),
+  zone_id INTEGER REFERENCES zones(id),
+  status VARCHAR(20) DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
+-- 2. STORAGE SYSTEM (SHELVING)
+-- ==========================================
+CREATE TABLE shelf_types (
+  type_code VARCHAR(30) PRIMARY KEY,
+  type_name VARCHAR(100) NOT NULL,
+  default_gap NUMERIC(5,2) NOT NULL,
+  accessibility_rating INTEGER DEFAULT 3,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE shelves (
+  id SERIAL PRIMARY KEY,
+  zone_id INTEGER NOT NULL REFERENCES zones(id),
+  shelf_code VARCHAR(50) UNIQUE NOT NULL,
+  shelf_type VARCHAR(30) NOT NULL REFERENCES shelf_types(type_code),
+  aisle_num INTEGER, bay_num INTEGER, level_num INTEGER, bin_num INTEGER,
+  width NUMERIC(10,2) NOT NULL,
+  depth NUMERIC(10,2) NOT NULL,
+  height NUMERIC(10,2) NOT NULL,
+  volume NUMERIC(10,3) GENERATED ALWAYS AS (width * height * depth) STORED,
+  location_x NUMERIC(10,2), location_y NUMERIC(10,2), location_z NUMERIC(10,2),
+  max_weight NUMERIC(10,2) NOT NULL,
+  current_weight NUMERIC(10,2) DEFAULT 0,
+  used_volume NUMERIC(10,3) DEFAULT 0,
+  available_volume NUMERIC(10,3) GENERATED ALWAYS AS ((width * height * depth) - used_volume) STORED,
+  temperature_zone VARCHAR(20) DEFAULT 'ambient',
+  status VARCHAR(20) DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
+-- 3. PRODUCTS & SUPPLIERS
+-- ==========================================
+CREATE TABLE suppliers (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  phone VARCHAR(100), email VARCHAR(100),
+  contact_person VARCHAR(500), address VARCHAR(500),
+  status VARCHAR(20) DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE products (
+  id SERIAL PRIMARY KEY,
+  sku VARCHAR(50) UNIQUE NOT NULL,
+  name VARCHAR(200) NOT NULL,
+  category VARCHAR(100),
+  supplier_id INTEGER REFERENCES suppliers(id),
+  supplier_sku VARCHAR(50),
+  upc_code VARCHAR(20),
+  handling_type VARCHAR(20),
+  storage_temperature VARCHAR(20) DEFAULT 'ambient',
+  unit_price NUMERIC(10,2),
+  turnover_rate VARCHAR(10) DEFAULT 'medium',
+  item_popularity_score NUMERIC(5,2) DEFAULT 0,
+  status VARCHAR(20) DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE reorder_policy (
+  product_id INTEGER PRIMARY KEY REFERENCES products(id),
+  reorder_point INTEGER,
+  safety_stock INTEGER,
+  eoq INTEGER,
+  reorder_frequency_days INTEGER,
+  lead_time_days INTEGER,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
+-- 4. INBOUND LOGISTICS (PO & RECEIPTS)
+-- ==========================================
+CREATE TABLE purchase_orders (
+  id SERIAL PRIMARY KEY,
+  po_number VARCHAR(50) UNIQUE NOT NULL,
+  supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+  warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+  status VARCHAR(20) DEFAULT 'draft',
+  expected_date DATE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE purchase_order_items (
+  id SERIAL PRIMARY KEY,
+  purchase_order_id INTEGER NOT NULL REFERENCES purchase_orders(id),
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  ordered_qty INTEGER NOT NULL,
+  received_qty INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE receipts (
+  id SERIAL PRIMARY KEY,
+  receipt_number VARCHAR(50) UNIQUE NOT NULL,
+  purchase_order_id INTEGER REFERENCES purchase_orders(id),
+  received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  status VARCHAR(20) DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE receipt_items (
+  id SERIAL PRIMARY KEY,
+  receipt_id INTEGER NOT NULL REFERENCES receipts(id),
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  received_qty INTEGER NOT NULL,
+  batch_number VARCHAR(50) NOT NULL,
+  expiry_date DATE,
+  measured_width NUMERIC(10,2), measured_depth NUMERIC(10,2), measured_height NUMERIC(10,2), measured_weight NUMERIC(10,2),
+  measured_volume NUMERIC(10,3) GENERATED ALWAYS AS (measured_width * measured_height * measured_depth) STORED,
+  assigned_shelf_id INTEGER REFERENCES shelves(id),
+  placed_qty INTEGER DEFAULT 0,
+  placement_status VARCHAR(20) DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE placement_suggestions (
+  id SERIAL PRIMARY KEY,
+  receipt_item_id INTEGER NOT NULL REFERENCES receipt_items(id),
+  shelf_id INTEGER NOT NULL REFERENCES shelves(id),
+  algorithm VARCHAR(20),
+  fitness_score NUMERIC(5,3),
+  suggested_qty INTEGER,
+  status VARCHAR(20) DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
+-- 5. INVENTORY & ANALYTICS
+-- ==========================================
+CREATE TABLE inventory (
+  id SERIAL PRIMARY KEY,
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  shelf_id INTEGER NOT NULL REFERENCES shelves(id),
+  warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+  batch_number VARCHAR(50) NOT NULL,
+  quantity INTEGER NOT NULL DEFAULT 0,
+  allocated INTEGER DEFAULT 0,
+  available INTEGER GENERATED ALWAYS AS (quantity - allocated) STORED,
+  total_volume NUMERIC(10,3) NOT NULL,
+  total_weight NUMERIC(10,2) NOT NULL,
+  expiry_date DATE,
+  received_date DATE NOT NULL,
+  status VARCHAR(20) DEFAULT 'available',
+  is_sealed BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+
+CREATE TABLE product_demand_analytics (
+    product_id INTEGER PRIMARY KEY REFERENCES products(id),
+    daily_demand NUMERIC(10,2),
+    demand_std_dev NUMERIC(10,2),
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE product_logistics_metrics (
+    product_id INTEGER PRIMARY KEY REFERENCES products(id),
+    item_popularity_score NUMERIC(5,2),
+    picking_time_seconds INTEGER,
+    handling_cost_per_unit NUMERIC(10,2),
+    stockout_count_last_month INTEGER,
+    order_fulfillment_rate NUMERIC(5,2),
+    total_orders_last_month INTEGER,
+    layout_efficiency_score NUMERIC(5,2),
+    forecasted_demand_next_7d NUMERIC(10,2),
+    kpi_score NUMERIC(5,2),
+    last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE inventory_health_analytics (
+    product_id INTEGER PRIMARY KEY REFERENCES products(id),
+    days_since_last_sale INTEGER NOT NULL,
+    turnover_ratio NUMERIC(10,2) NOT NULL,
+    inventory_age_days INTEGER NOT NULL,
+    dead_stock_severity_score NUMERIC(5,2) NOT NULL,
+    velocity_score NUMERIC(5,2) NOT NULL,
+    normalized_velocity NUMERIC(5,2) NOT NULL,
+    overstock_ratio NUMERIC(5,2) NOT NULL,
+    coefficient_of_variation NUMERIC(5,2) NOT NULL,
+    classification VARCHAR(50) NOT NULL,
+    recommended_action VARCHAR(50) NOT NULL,
+    consecutive_confirmation_count INTEGER NOT NULL,
+    last_evaluated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE inventory_optimization_config (
+    id SERIAL PRIMARY KEY,
+    dead_days_threshold INTEGER NOT NULL,
+    slow_turnover_threshold NUMERIC(10,2) NOT NULL,
+    expiry_warning_days INTEGER NOT NULL,
+    auto_discount_enabled BOOLEAN DEFAULT FALSE,
+    auto_bundle_enabled BOOLEAN DEFAULT FALSE,
+    max_discount_limit NUMERIC(5,2) NOT NULL,
+    low_risk_severity_threshold NUMERIC(5,2) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE inventory_health_status (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+    batch_id INTEGER,
+    health_type VARCHAR(50) NOT NULL,
+    severity_score NUMERIC(5,2) NOT NULL,
+    details JSON,
+    detected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE inventory_action_suggestions (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+    batch_id INTEGER,
+    health_status_id INTEGER REFERENCES inventory_health_status(id),
+    suggestion_type VARCHAR(50) NOT NULL,
+    reasoning TEXT NOT NULL,
+    severity_score NUMERIC(5,2) NOT NULL,
+    suggested_discount_percent NUMERIC(5,2),
+    linked_promotion_id INTEGER,
+    linked_bundle_id INTEGER,
+    status VARCHAR(50) NOT NULL,
+    approved_by INTEGER REFERENCES users(id),
+    approved_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
+-- 6. SALES & OUTBOUND LOGISTICS
+-- ==========================================
+CREATE TABLE customers (
+  id SERIAL PRIMARY KEY,
+  customer_name VARCHAR(100) NOT NULL,
+  contact_person VARCHAR(100),
+  email VARCHAR(100) UNIQUE,
+  phone VARCHAR(20),
+  shipping_address TEXT NOT NULL,
+  tax_id VARCHAR(50),
+  status VARCHAR(20) DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE sales_orders (
+  id SERIAL PRIMARY KEY,
+  order_number VARCHAR(50) UNIQUE NOT NULL,
+  customer_id INTEGER NOT NULL REFERENCES customers(id),
+  warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+  status VARCHAR(20) DEFAULT 'pending',
+  priority_level VARCHAR(20) DEFAULT 'normal',
+  order_date DATE DEFAULT CURRENT_DATE,
+  expected_delivery_date DATE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE sales_order_items (
+  id SERIAL PRIMARY KEY,
+  sales_order_id INTEGER NOT NULL REFERENCES sales_orders(id),
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  ordered_qty INTEGER NOT NULL,
+  picked_qty INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE delivery_notes (
+  id SERIAL PRIMARY KEY,
+  delivery_number VARCHAR(50) UNIQUE NOT NULL,
+  sales_order_id INTEGER NOT NULL REFERENCES sales_orders(id),
+  status VARCHAR(20) DEFAULT 'pending',
+  shipped_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE delivery_note_items (
+  id SERIAL PRIMARY KEY,
+  delivery_note_id INTEGER NOT NULL REFERENCES delivery_notes(id),
+  sales_order_item_id INTEGER NOT NULL REFERENCES sales_order_items(id),
+  shipped_qty INTEGER NOT NULL,
+  status VARCHAR(20) DEFAULT 'pending'
+);
+
+-- ==========================================
+-- 7. KITTING & PROMOTIONS
+-- ==========================================
+CREATE TABLE bundles (
+    id SERIAL PRIMARY KEY,
+    bundle_name VARCHAR(200) NOT NULL,
+    bundle_price NUMERIC(10,2) NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE bundle_items (
+    id SERIAL PRIMARY KEY,
+    bundle_id INTEGER NOT NULL REFERENCES bundles(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    UNIQUE(bundle_id, product_id)
+);
+
+CREATE TABLE bundle_sales (
+    id SERIAL PRIMARY KEY,
+    bundle_id INTEGER NOT NULL REFERENCES bundles(id),
+    sales_order_id INTEGER NOT NULL REFERENCES sales_orders(id),
+    quantity INTEGER NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE promotions (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    discount_type VARCHAR(20) NOT NULL CHECK (discount_type IN ('PERCENTAGE', 'FIXED', 'QUANTITY_BASED')),
+    discount_value NUMERIC(10,2) NOT NULL,
+    min_quantity INTEGER DEFAULT 1,
+    valid_from TIMESTAMP NOT NULL,
+    valid_until TIMESTAMP,
+    is_active BOOLEAN DEFAULT true,
+    approval_status VARCHAR(20) DEFAULT 'PENDING' CHECK (approval_status IN ('PENDING', 'APPROVED', 'REJECTED')),
+    approved_by INTEGER REFERENCES users(id),
+    approved_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
+-- 8. PICKING & PERFORMANCE
+-- ==========================================
+CREATE TABLE picking_allocations (
+    id SERIAL PRIMARY KEY,
+    delivery_note_item_id INTEGER NOT NULL REFERENCES delivery_note_items(id) ON DELETE CASCADE,
+    inventory_id INTEGER NOT NULL REFERENCES inventory(id),
+    quantity_allocated INTEGER NOT NULL,
+    picking_sequence INTEGER NOT NULL,
+    status VARCHAR(20) DEFAULT 'PENDING',
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_inventory_product ON inventory(product_id);
+CREATE INDEX idx_products_sku ON products(sku);
