@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { getSalesOrders, createSalesOrder, deleteSalesOrder, updateSalesOrder, getSalesOrder } from "@/lib/api/sales_orders";
@@ -15,6 +16,7 @@ import { createDeliveryNote } from "@/lib/api/delivery_notes";
 import { getCustomers, createCustomer, deleteCustomer } from "@/lib/api/customers";
 import { getProducts } from "@/lib/api/products";
 import { useWms } from "@/context/WmsContext";
+import { ProductPicker } from "./ProductPicker";
 
 const statusMap = {
   pending: { label: "Pending", style: "bg-warning/10 text-warning" },
@@ -38,6 +40,7 @@ export default function SalesOrders() {
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
   const [bundles, setBundles] = useState([]);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
   const { state, fetchWarehouses } = useWms();
   
   const [newOrder, setNewOrder] = useState({
@@ -45,7 +48,7 @@ export default function SalesOrders() {
     warehouse_id: "",
     priority_level: "normal",
     expected_delivery_date: "",
-    items: [{ type: "product", product_id: "", bundle_id: "", ordered_qty: 1 }]
+    items: [] // Start with empty array
   });
 
   const [newCustomer, setNewCustomer] = useState({
@@ -227,7 +230,26 @@ export default function SalesOrders() {
   };
 
   const addItem = () => {
-    setNewOrder(prev => ({ ...prev, items: [...prev.items, { type: "product", product_id: "", bundle_id: "", ordered_qty: 1 }] }));
+    setIsPickerOpen(true);
+  };
+
+  const handleProductSelect = (item, type) => {
+    setNewOrder(prev => {
+      // Check if already added
+      const idStr = item.id.toString();
+      const exists = prev.items.find(i => i.type === type && (type === 'product' ? i.product_id : i.bundle_id)?.toString() === idStr);
+      if (exists) return prev;
+
+      return {
+        ...prev,
+        items: [...prev.items, { 
+          type: type, 
+          product_id: type === 'product' ? idStr : "", 
+          bundle_id: type === 'bundle' ? idStr : "", 
+          ordered_qty: 1 
+        }]
+      };
+    });
   };
 
   const removeItem = (index) => {
@@ -291,7 +313,7 @@ export default function SalesOrders() {
               customer_id: "",
               warehouse_id: "",
               priority_level: "normal",
-              items: [{ type: "product", product_id: "", bundle_id: "", ordered_qty: 1 }]
+              items: []
             });
             setIsCreateModalOpen(true);
           }} className="flex items-center gap-2">
@@ -565,51 +587,98 @@ export default function SalesOrders() {
               <div className="space-y-3">
                 {newOrder.items.map((item, idx) => (
                   <div key={idx} className="p-3 rounded-lg border border-border/50 bg-muted/20 space-y-3">
-                    <div className="flex justify-between items-center">
-                      <div className="flex p-0.5 rounded-md bg-muted/50 border border-border w-fit">
-                        <button 
-                          onClick={() => updateItem(idx, 'type', 'product')}
-                          className={cn("px-2 py-1 text-[10px] font-bold uppercase rounded transition-all", item.type === 'product' ? "bg-background text-primary shadow-sm" : "text-muted-foreground")}
-                        >
-                          Product
-                        </button>
-                        <button 
-                          onClick={() => updateItem(idx, 'type', 'bundle')}
-                          className={cn("px-2 py-1 text-[10px] font-bold uppercase rounded transition-all", item.type === 'bundle' ? "bg-background text-primary shadow-sm" : "text-muted-foreground")}
-                        >
-                          Bundle
-                        </button>
-                      </div>
-                      <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => removeItem(idx)} disabled={newOrder.items.length === 1}>
+                    <div className="flex justify-end items-center">
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => removeItem(idx)}>
                         <X size={14} />
                       </Button>
                     </div>
                     
-                    <div className="flex gap-2 items-end">
-                      <div className="flex-1">
+                    <div className="flex gap-4 items-center">
+                      <div className="flex-1 flex flex-col">
                         {item.type === "product" ? (
-                          <Select value={item.product_id.toString()} onValueChange={(v) => updateItem(idx, 'product_id', v)}>
-                            <SelectTrigger><SelectValue placeholder="Select Product" /></SelectTrigger>
-                            <SelectContent>
-                              {products.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.sku} - {p.name}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
+                          <>
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-sm">
+                                {products.find(p => p.id.toString() === item.product_id.toString())?.name || "Unknown Product"}
+                              </span>
+                              {products.find(p => p.id.toString() === item.product_id.toString())?.discount_value > 0 && (
+                                <Badge variant="destructive" className="h-4 text-[9px] px-1 font-bold">
+                                  {products.find(p => p.id.toString() === item.product_id.toString())?.discount_type === 'PERCENTAGE' 
+                                    ? `-${products.find(p => p.id.toString() === item.product_id.toString())?.discount_value}%` 
+                                    : `-$${products.find(p => p.id.toString() === item.product_id.toString())?.discount_value}`}
+                                </Badge>
+                              )}
+                            </div>
+                            <span className="text-[10px] font-mono text-muted-foreground uppercase opacity-70">
+                              {products.find(p => p.id.toString() === item.product_id.toString())?.sku || "NO-SKU"}
+                            </span>
+                          </>
                         ) : (
-                          <Select value={item.bundle_id.toString()} onValueChange={(v) => updateItem(idx, 'bundle_id', v)}>
-                            <SelectTrigger><SelectValue placeholder="Select Bundle" /></SelectTrigger>
-                            <SelectContent>
-                              {bundles.map(b => <SelectItem key={b.id} value={b.id.toString()}>{b.bundle_name}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
+                          <span className="font-semibold text-sm">
+                            {bundles.find(b => b.id.toString() === item.bundle_id.toString())?.bundle_name || "Unknown Bundle"}
+                          </span>
                         )}
                       </div>
-                      <div className="w-24">
-                        <Input type="number" min="1" value={item.ordered_qty} onChange={(e) => updateItem(idx, 'ordered_qty', e.target.value)} placeholder="Qty" />
+                      
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-tight opacity-50">Quantity</p>
+                          <Input 
+                            type="number" 
+                            min="1" 
+                            value={item.ordered_qty} 
+                            onChange={(e) => updateItem(idx, 'ordered_qty', e.target.value)} 
+                            className="h-8 w-20 text-center font-bold bg-background border-border/40"
+                          />
+                        </div>
+                        <div className="text-right min-w-[80px]">
+                           <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-tight opacity-50">Price</p>
+                           <p className="text-sm font-bold">
+                              ${(() => {
+                                if (item.type === "product") {
+                                  const p = products.find(prod => prod.id.toString() === item.product_id.toString());
+                                  if (!p) return "0.00";
+                                  let price = parseFloat(p.unit_price);
+                                  if (p.discount_value > 0) {
+                                    price = p.discount_type === 'PERCENTAGE' ? price * (1 - p.discount_value / 100) : Math.max(0, price - p.discount_value);
+                                  }
+                                  return (price * item.ordered_qty).toFixed(2);
+                                } else {
+                                  const b = bundles.find(bun => bun.id.toString() === item.bundle_id.toString());
+                                  return b ? (parseFloat(b.bundle_price) * item.ordered_qty).toFixed(2) : "0.00";
+                                }
+                              })()}
+                           </p>
+                        </div>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+          <div className="border-t pt-4 space-y-2">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground">Subtotal (Approx.)</span>
+              <span className="font-medium">
+                ${newOrder.items.reduce((acc, item) => {
+                  if (item.type === "product" && item.product_id) {
+                    const product = products.find(p => p.id.toString() === item.product_id.toString());
+                    if (product) {
+                      let price = product.unit_price;
+                      if (product.discount_value > 0) {
+                        if (product.discount_type === 'PERCENTAGE') price *= (1 - product.discount_value / 100);
+                        else price = Math.max(0, price - product.discount_value);
+                      }
+                      return acc + (price * item.ordered_qty);
+                    }
+                  } else if (item.type === "bundle" && item.bundle_id) {
+                    const bundle = bundles.find(b => b.id.toString() === item.bundle_id.toString());
+                    if (bundle) return acc + (bundle.bundle_price * item.ordered_qty);
+                  }
+                  return acc;
+                }, 0).toFixed(2)}
+              </span>
             </div>
           </div>
           <DialogFooter>
@@ -618,6 +687,15 @@ export default function SalesOrders() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ProductPicker 
+        open={isPickerOpen}
+        onOpenChange={setIsPickerOpen}
+        products={products}
+        bundles={bundles}
+        onSelect={handleProductSelect}
+        existingItems={newOrder.items}
+      />
     </div>
   );
 }
@@ -637,9 +715,19 @@ function OrderDetails({ orderId }) {
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground uppercase font-semibold">Order Items</p>
       {details.items.map((item, idx) => (
-        <div key={idx} className="flex justify-between text-sm py-1 border-b border-border/50 last:border-0">
-          <span>{item.product_name}</span>
-          <span className="font-medium">x{item.ordered_qty}</span>
+        <div key={idx} className="flex justify-between text-sm py-1.5 border-b border-border/50 last:border-0">
+          <div className="flex flex-col">
+            <span className="font-medium">{item.product_name}</span>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-[10px] text-muted-foreground">x{item.ordered_qty} @ ${parseFloat(item.unit_price).toFixed(2)}</span>
+              {item.discount_value > 0 && (
+                <span className="text-[9px] font-bold text-destructive">
+                  ({item.discount_type === 'PERCENTAGE' ? `-${item.discount_value}%` : `-$${item.discount_value}`})
+                </span>
+              )}
+            </div>
+          </div>
+          <span className="font-semibold self-center">${parseFloat(item.total_price).toFixed(2)}</span>
         </div>
       ))}
       <div className="flex justify-between font-bold pt-2">

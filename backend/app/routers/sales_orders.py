@@ -40,9 +40,20 @@ def list_sales_orders(status: Optional[str] = None, page: int = 1, limit: int = 
                    so.warehouse_id, w.name as warehouse_name,
                    so.status, so.priority_level, so.order_date, so.expected_delivery_date, so.created_at,
                    (SELECT COUNT(*) FROM sales_order_items WHERE sales_order_id = so.id) as item_count,
-                   (SELECT COALESCE(SUM(soi.ordered_qty * p.unit_price), 0) 
+                   (SELECT COALESCE(SUM(
+                        soi.ordered_qty * (p.unit_price - COALESCE(
+                            CASE 
+                                WHEN pr.discount_type = 'PERCENTAGE' THEN p.unit_price * pr.discount_value / 100
+                                WHEN pr.discount_type = 'FIXED' THEN pr.discount_value
+                                ELSE 0
+                            END, 0))
+                    ), 0) 
                     FROM sales_order_items soi 
                     JOIN products p ON soi.product_id = p.id 
+                    LEFT JOIN promotions pr ON p.id = pr.product_id 
+                        AND pr.is_active = true 
+                        AND (pr.valid_until IS NULL OR pr.valid_until > so.order_date)
+                        AND pr.valid_from <= so.order_date
                     WHERE soi.sales_order_id = so.id) as total_amount,
                     (SELECT delivery_number FROM delivery_notes WHERE sales_order_id = so.id LIMIT 1) as delivery_note
             FROM sales_orders so
@@ -108,14 +119,30 @@ def get_sales_order(order_id: int):
         cur.execute("""
             SELECT soi.id, soi.product_id, p.name as product_name, p.sku, 
                    soi.ordered_qty, soi.picked_qty, p.unit_price,
-                   (soi.ordered_qty * p.unit_price) as total_price,
-                   soi.bundle_id, b.bundle_name
+                   (soi.ordered_qty * (p.unit_price - COALESCE(
+                        CASE 
+                            WHEN pr.discount_type = 'PERCENTAGE' THEN p.unit_price * pr.discount_value / 100
+                            WHEN pr.discount_type = 'FIXED' THEN pr.discount_value
+                            ELSE 0
+                        END, 0))) as total_price,
+                   soi.bundle_id, b.bundle_name,
+                   pr.discount_type, pr.discount_value
             FROM sales_order_items soi
             JOIN products p ON soi.product_id = p.id
             LEFT JOIN bundles b ON soi.bundle_id = b.id
+            LEFT JOIN sales_orders so ON soi.sales_order_id = so.id
+            LEFT JOIN promotions pr ON p.id = pr.product_id 
+                AND pr.is_active = true 
+                AND (pr.valid_until IS NULL OR pr.valid_until > so.order_date)
+                AND pr.valid_from <= so.order_date
             WHERE soi.sales_order_id = %s
         """, (order_id,))
         items = cur.fetchall()
+        
+        for r in items:
+            r["unit_price"] = float(r.get("unit_price") or 0)
+            r["total_price"] = float(r.get("total_price") or 0)
+            r["discount_value"] = float(r.get("discount_value") or 0)
         
         order['items'] = items
         

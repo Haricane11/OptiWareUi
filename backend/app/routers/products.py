@@ -12,15 +12,20 @@ def list_products(status: Optional[str] = None):
         conn = get_conn()
         cur = conn.cursor()
         query = """
-            SELECT id, sku, name, category, supplier_id, supplier_sku, upc_code,
-                   handling_type, storage_temperature, unit_price, turnover_rate, status, created_at
-            FROM products
+            SELECT p.id, p.sku, p.name, p.category, p.supplier_id, p.supplier_sku, p.upc_code,
+                   p.handling_type, p.storage_temperature, p.unit_price, p.turnover_rate, p.status, p.created_at,
+                   pr.discount_type::text as discount_type, pr.discount_value
+            FROM products p
+            LEFT JOIN promotions pr ON p.id = pr.product_id 
+                AND pr.is_active = true 
+                AND (pr.valid_until IS NULL OR pr.valid_until > timezone('UTC', NOW()))
+                AND pr.valid_from <= timezone('UTC', NOW())
         """
         params = []
         if status:
-            query += " WHERE status = %s"
+            query += " WHERE p.status = %s"
             params.append(status)
-        query += " ORDER BY id ASC;"
+        query += " ORDER BY p.id ASC;"
         
         cur.execute(query, params)
         rows = cur.fetchall()
@@ -28,6 +33,7 @@ def list_products(status: Optional[str] = None):
         conn.close()
         for r in rows:
             r["unit_price"] = float(r.get("unit_price") or 0)
+            r["discount_value"] = float(r.get("discount_value") or 0)
         return rows
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
