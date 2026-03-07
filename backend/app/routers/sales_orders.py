@@ -7,12 +7,35 @@ import datetime
 router = APIRouter(prefix="/sales-orders", tags=["sales-orders"])
 
 @router.get("")
-def list_sales_orders(status: Optional[str] = None):
-    """List all sales orders."""
+def list_sales_orders(status: Optional[str] = None, page: int = 1, limit: int = 20):
+    """List all sales orders with pagination."""
     try:
         conn = get_conn()
         cur = conn.cursor()
-        query = """
+        
+        # Determine offset
+        offset = (page - 1) * limit
+        
+        # Base where clause
+        where_clause = ""
+        params = []
+        if status:
+            where_clause = " WHERE so.status = %s"
+            params.append(status)
+            
+        # Get total count for metadata
+        count_query = f"""
+            SELECT COUNT(*) as total
+            FROM sales_orders so
+            JOIN customers c ON so.customer_id = c.id
+            JOIN warehouses w ON so.warehouse_id = w.id
+            {where_clause}
+        """
+        cur.execute(count_query, params)
+        total_count = cur.fetchone()['total']
+        
+        # Main query with pagination
+        query = f"""
             SELECT so.id, so.order_number, so.customer_id, c.customer_name, 
                    so.warehouse_id, w.name as warehouse_name,
                    so.status, so.priority_level, so.order_date, so.expected_delivery_date, so.created_at,
@@ -25,15 +48,7 @@ def list_sales_orders(status: Optional[str] = None):
             FROM sales_orders so
             JOIN customers c ON so.customer_id = c.id
             JOIN warehouses w ON so.warehouse_id = w.id
-        """
-        params = []
-        if status:
-            query += " WHERE so.status = %s"
-            params.append(status)
-        
-        # Order by expected_delivery_date (asc) to show urgent orders first, 
-        # then by priority_level (custom sort), then by id
-        query += """ 
+            {where_clause}
             ORDER BY 
                 so.status = 'pending' DESC, -- Pending orders first
                 so.expected_delivery_date ASC NULLS LAST, -- Earliest deadline first
@@ -44,14 +59,24 @@ def list_sales_orders(status: Optional[str] = None):
                     WHEN so.priority_level = 'low' THEN 4 
                     ELSE 5 
                 END,
-                so.id DESC;
+                so.id DESC
+            LIMIT %s OFFSET %s;
         """
         
-        cur.execute(query, params)
+        cur.execute(query, params + [limit, offset])
         rows = cur.fetchall()
         cur.close()
         conn.close()
-        return rows
+        
+        return {
+            "data": rows,
+            "metadata": {
+                "total": total_count,
+                "page": page,
+                "limit": limit,
+                "total_pages": (total_count + limit - 1) // limit if total_count > 0 else 0
+            }
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -83,14 +108,26 @@ def get_sales_order(order_id: int):
         cur.execute("""
             SELECT soi.id, soi.product_id, p.name as product_name, p.sku, 
                    soi.ordered_qty, soi.picked_qty, p.unit_price,
-                   (soi.ordered_qty * p.unit_price) as total_price
+                   (soi.ordered_qty * p.unit_price) as total_price,
+                   soi.bundle_id, b.bundle_name
             FROM sales_order_items soi
             JOIN products p ON soi.product_id = p.id
+            LEFT JOIN bundles b ON soi.bundle_id = b.id
             WHERE soi.sales_order_id = %s
         """, (order_id,))
         items = cur.fetchall()
         
         order['items'] = items
+        
+        # Get Bundle Sales
+        cur.execute("""
+            SELECT bs.id, bs.bundle_id, b.bundle_name, bs.quantity, b.bundle_price
+            FROM bundle_sales bs
+            JOIN bundles b ON bs.bundle_id = b.id
+            WHERE bs.sales_order_id = %s
+        """, (order_id,))
+        bundle_sales = cur.fetchall()
+        order['bundle_sales'] = bundle_sales
         
         # Calculate total
         total = sum(item['total_price'] for item in items)
@@ -153,14 +190,42 @@ def create_sales_order(order: SalesOrderCreate):
         
         # Insert Items
         for item in order.items:
-            cur.execute(
-                """
-                INSERT INTO sales_order_items (
-                    sales_order_id, product_id, ordered_qty, picked_qty
-                ) VALUES (%s, %s, %s, 0)
-                """,
-                (order_id, item.product_id, item.ordered_qty)
-            )
+            if item.bundle_id:
+                # Get bundle items
+                cur.execute(
+                    "SELECT product_id, quantity FROM bundle_items WHERE bundle_id = %s",
+                    (item.bundle_id,)
+                )
+                bundle_items = cur.fetchall()
+                
+                # Record bundle sale
+                cur.execute(
+                    """
+                    INSERT INTO bundle_sales (bundle_id, sales_order_id, quantity)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (item.bundle_id, order_id, item.ordered_qty)
+                )
+                
+                # Insert individual items from bundle
+                for b_item in bundle_items:
+                    cur.execute(
+                        """
+                        INSERT INTO sales_order_items (
+                            sales_order_id, product_id, ordered_qty, picked_qty, bundle_id
+                        ) VALUES (%s, %s, %s, 0, %s)
+                        """,
+                        (order_id, b_item['product_id'], b_item['quantity'] * item.ordered_qty, item.bundle_id)
+                    )
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO sales_order_items (
+                        sales_order_id, product_id, ordered_qty, picked_qty, bundle_id
+                    ) VALUES (%s, %s, %s, 0, NULL)
+                    """,
+                    (order_id, item.product_id, item.ordered_qty)
+                )
             
         conn.commit()
         cur.close()
@@ -231,14 +296,43 @@ def update_sales_order(order_id: int, order: SalesOrderUpdate):
             
             # Insert new items
             for item in order.items:
-                cur.execute(
-                    """
-                    INSERT INTO sales_order_items (
-                        sales_order_id, product_id, ordered_qty, picked_qty
-                    ) VALUES (%s, %s, %s, 0)
-                    """,
-                    (order_id, item.product_id, item.ordered_qty)
-                )
+                if item.bundle_id:
+                    # Get bundle items
+                    cur.execute(
+                        "SELECT product_id, quantity FROM bundle_items WHERE bundle_id = %s",
+                        (item.bundle_id,)
+                    )
+                    bundle_items = cur.fetchall()
+                    
+                    # Record bundle sale (Delete existing if update, but easier to just insert if we assume first time or simple replace)
+                    # Actually update_sales_order deletes all SO items, we should also handle bundle_sales
+                    cur.execute("DELETE FROM bundle_sales WHERE sales_order_id = %s", (order_id,))
+                    cur.execute(
+                        """
+                        INSERT INTO bundle_sales (bundle_id, sales_order_id, quantity)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (item.bundle_id, order_id, item.ordered_qty)
+                    )
+                    
+                    for b_item in bundle_items:
+                        cur.execute(
+                            """
+                            INSERT INTO sales_order_items (
+                                sales_order_id, product_id, ordered_qty, picked_qty, bundle_id
+                            ) VALUES (%s, %s, %s, 0, %s)
+                            """,
+                            (order_id, b_item['product_id'], b_item['quantity'] * item.ordered_qty, item.bundle_id)
+                        )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO sales_order_items (
+                            sales_order_id, product_id, ordered_qty, picked_qty, bundle_id
+                        ) VALUES (%s, %s, %s, 0, NULL)
+                        """,
+                        (order_id, item.product_id, item.ordered_qty)
+                    )
 
         conn.commit()
         cur.close()

@@ -56,10 +56,11 @@ function PaginationControls({ currentPage, totalPages, onPageChange }) {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-const typeIcon = { DISCOUNT: Tag, BUNDLE: Package, RETURN: RotateCcw, DISPOSAL: Trash2 };
-const typeLabel = { DISCOUNT: "Discount", BUNDLE: "Bundle Strategy", RETURN: "Return", DISPOSAL: "Disposal" };
+const typeIcon = { DISCOUNT: Tag, HEAVY_DISCOUNT: Tag, BUNDLE: Package, RETURN: RotateCcw, DISPOSAL: Trash2 };
+const typeLabel = { DISCOUNT: "Discount", HEAVY_DISCOUNT: "Heavy Discount", BUNDLE: "Bundle Strategy", RETURN: "Return", DISPOSAL: "Disposal" };
 const typeColor = {
   DISCOUNT: "text-warning bg-warning/10 border-warning/20",
+  HEAVY_DISCOUNT: "text-orange-600 bg-orange-500/10 border-orange-500/20",
   BUNDLE: "text-primary bg-primary/10 border-primary/20",
   RETURN: "text-primary bg-primary/10 border-primary/20",
   DISPOSAL: "text-destructive bg-destructive/10 border-destructive/20",
@@ -69,6 +70,11 @@ const actionOutcome = {
   DISCOUNT: {
     label: "Discount",
     proceed: "A promotional discount will be automatically created for this product. Recovers capital from price-elastic overstock.",
+    icon: Tag,
+  },
+  HEAVY_DISCOUNT: {
+    label: "Heavy Discount",
+    proceed: "A deep discount will be applied to rapidly clear excess stock. Used for dormant items with extreme overstock pressure (>3x).",
     icon: Tag,
   },
   BUNDLE: {
@@ -104,9 +110,12 @@ function SeverityBadge({ current, previous }) {
   let colorClass = "bg-success text-success-foreground";
   let label = "Healthy";
   
-  if (cur >= 2.0) {
+  if (cur >= 2.6) {
     colorClass = "bg-destructive text-destructive-foreground";
     label = "Dead";
+  } else if (cur >= 1.8) {
+    colorClass = "bg-orange-600 text-white";
+    label = "Dormant";
   } else if (cur >= 1.0) {
     colorClass = "bg-warning text-warning-foreground";
     label = "Slow";
@@ -164,6 +173,10 @@ export default function InventoryRiskDashboard() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [batchLoading, setBatchLoading] = useState(false);
   
+  // Execution Modal State
+  const [executingItem, setExecutingItem] = useState(null);
+  const [executingState, setExecutingState] = useState({ loading: false, success: false });
+  
   // Custom manual pairs config: product_id -> pair_product_id
   const [manualPairs, setManualPairs] = useState({});
   const [allProducts, setAllProducts] = useState([]);
@@ -189,14 +202,16 @@ export default function InventoryRiskDashboard() {
       // Calculate Portfolio Metrics
       let deadCap = 0, slowCap = 0;
       let sumVelocity = 0, sumOverstock = 0;
-      let counts = { HEALTHY: 0, SLOW_MOVING: 0, DEAD: 0 };
+      let counts = { HEALTHY: 0, SLOW_MOVING: 0, DORMANT: 0, DEAD: 0 };
+      let dormantCap = 0;
       
       parsedItems.forEach(item => {
         // We ensure item values are treated as numbers
         const cap = Number(item.capital_risk) || ((Number(item.total_available) || 0) * (Number(item.unit_price) || 0));
         
         if (item.classification === "DEAD") deadCap += cap;
-        if (item.classification === "SLOW_MOVING") slowCap += cap;
+        else if (item.classification === "DORMANT") dormantCap += cap;
+        else if (item.classification === "SLOW_MOVING") slowCap += cap;
         
         counts[item.classification || "HEALTHY"] = (counts[item.classification || "HEALTHY"] || 0) + 1;
         sumVelocity += (Number(item.velocity_score) || 0);
@@ -205,13 +220,15 @@ export default function InventoryRiskDashboard() {
       
       const total = parsedItems.length || 1;
       setPortfolioStats({
-        totalAtRisk: deadCap + slowCap,
+        totalAtRisk: deadCap + dormantCap + slowCap,
         deadCapital: deadCap,
+        dormantCapital: dormantCap,
         slowCapital: slowCap,
         avgVelocity: sumVelocity / total,
         avgOverstock: sumOverstock / total,
         healthyPct: (counts.HEALTHY / total) * 100,
         slowPct: (counts.SLOW_MOVING / total) * 100,
+        dormantPct: ((counts.DORMANT || 0) / total) * 100,
         deadPct: (counts.DEAD / total) * 100
       });
       
@@ -251,16 +268,19 @@ export default function InventoryRiskDashboard() {
 
   // ─── Frontend Filtering & Pagination
   const filteredItems = items.filter(item => {
-    if (searchQuery && 
-       !(item.name || "").toLowerCase().includes(searchQuery.toLowerCase()) && 
-       !(item.sku || "").toLowerCase().includes(searchQuery.toLowerCase())) {
-        return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      if (!item.name?.toLowerCase().includes(q) && !item.sku?.toLowerCase().includes(q)) return false;
     }
+
+    // Hide executed disposal items (no action_id + zero stock = already disposed)
+    if (item.recommended_action === "DISPOSAL" && !item.action_id && (item.total_available ?? 0) <= 0) return false;
     
     if (statusFilter === "all") return true;
     
     if (statusFilter === "Healthy") return (item.classification === "HEALTHY" || !item.classification);
     if (statusFilter === "Slow") return item.classification === "SLOW_MOVING";
+    if (statusFilter === "Dormant") return item.classification === "DORMANT";
     if (statusFilter === "Dead") return item.classification === "DEAD";
     return true;
   });
@@ -289,7 +309,9 @@ export default function InventoryRiskDashboard() {
   };
 
   const toggleSelectAll = () => {
-    const selectableIds = displayed.map(s => s.product_id);
+    const selectableIds = displayed
+      .filter(s => s.classification && s.classification !== "HEALTHY")
+      .map(s => s.product_id);
     const allSelected = selectableIds.length > 0 && selectableIds.every(id => selectedIds.has(id));
     if (allSelected) {
       setSelectedIds(prev => {
@@ -342,11 +364,126 @@ export default function InventoryRiskDashboard() {
     }
   };
 
-  const executeSingleAction = async (product_id) => {
-      setSelectedIds(new Set([product_id]));
-      setTimeout(() => {
-          doBatchAction();
-      }, 0);
+  const executeSingleAction = async (item) => {
+      // First, check if the item already has an active discount or bundle
+      if (item.has_active_discount) {
+          toast({
+              title: "Cannot Execute",
+              description: "This product is already part of an active discount campaign.",
+              variant: "destructive",
+          });
+          return;
+      }
+      if (item.has_active_bundle) {
+          toast({
+              title: "Cannot Execute",
+              description: "This product is already included in an active bundle.",
+              variant: "destructive",
+          });
+          return;
+      }
+
+      let actionId = item.action_id;
+      
+      // If no suggestion exists, create one on-demand
+      if (!actionId) {
+          try {
+              const res = await fetch(`${API}/analytics/inventory-actions/create-for-product/${item.product_id}`, {
+                  method: "POST",
+              });
+              const data = await res.json();
+              if (res.ok && data.action_id) {
+                  actionId = data.action_id;
+                  item = { ...item, action_id: actionId };
+              } else {
+                  toast({
+                      title: "Cannot Execute",
+                      description: data.detail || "Failed to create action suggestion.",
+                      variant: "destructive",
+                  });
+                  return;
+              }
+          } catch (error) {
+              toast({
+                  title: "Cannot Execute",
+                  description: error.message || "Failed to create action suggestion.",
+                  variant: "destructive",
+              });
+              return;
+          }
+      }
+      if (item.recommended_action === "DISPOSAL") {
+          setExecutingItem(item);
+          setExecutingState({ loading: false, success: false });
+      } else {
+          toast({
+              title: "Executing Action...",
+              description: `Applying ${item.recommended_action} to ${item.name}.`,
+              variant: "default",
+          });
+          
+          try {
+              const res = await fetch(`${API}/analytics/inventory-actions/${item.action_id}/execute`, {
+                  method: "POST",
+              });
+              const data = await res.json();
+              if (res.ok) {
+                  toast({
+                      title: "Action Executed",
+                      description: data.message || `Successfully executed action for ${item.name}.`,
+                      variant: "default",
+                  });
+                  fetchAll();
+              } else {
+                  toast({
+                      title: "Execution Failed",
+                      description: data.detail || "Something went wrong.",
+                      variant: "destructive",
+                  });
+              }
+          } catch (error) {
+              toast({
+                  title: "Execution Error",
+                  description: error.message || "Failed to execute.",
+                  variant: "destructive",
+              });
+          }
+      }
+  };
+
+  const confirmExecution = async () => {
+      if (!executingItem) return;
+      setExecutingState({ loading: true, success: false });
+      
+      try {
+          const res = await fetch(`${API}/analytics/inventory-actions/${executingItem.action_id}/execute`, {
+              method: "POST",
+          });
+          const data = await res.json();
+          if (res.ok) {
+              setExecutingState({ loading: false, success: true });
+              toast({
+                  title: "Action Executed",
+                  description: data.message || `Successfully executed action for ${executingItem.name}.`,
+                  variant: "default",
+              });
+              // Refresh after 1.5s to show success state before closing modal
+              setTimeout(() => {
+                  setExecutingItem(null);
+                  fetchAll();
+              }, 1500);
+          } else {
+              throw new Error(data.detail || "Failed to execute action");
+          }
+      } catch (error) {
+           setExecutingState({ loading: false, success: false });
+           toast({
+             title: "Execution Error",
+             description: error.message,
+             variant: "destructive",
+           });
+           setExecutingItem(null);
+      }
   };
 
   const getSortIcon = (field) => {
@@ -373,9 +510,9 @@ export default function InventoryRiskDashboard() {
       </div>
 
       {/* Capital Efficiency Insight Panel */}
-      <div className="flex flex-col md:flex-row w-full gap-4">
+      <div className="flex flex-col xl:flex-row w-full gap-4">
         {/* Financial Risk Aggregates */}
-        <div className="flex flex-col sm:flex-row flex-1 gap-4">
+        <div className="flex flex-col md:flex-row flex-1 gap-4">
             <div className="flex-1 bg-card shadow-sm border border-border/50 rounded-xl p-4 border-l-4 border-l-destructive flex flex-col justify-center">
               <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider mb-0.5">Total At Risk</p>
               <p className="text-2xl font-bold text-foreground">{formatCurrency(portfolioStats.totalAtRisk)}</p>
@@ -385,7 +522,14 @@ export default function InventoryRiskDashboard() {
                   <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider mb-0.5">Dead Capital</p>
                   <p className="text-xl font-bold text-destructive">{formatCurrency(portfolioStats.deadCapital)}</p>
               </div>
-              <p className="text-[10px] text-muted-foreground mt-2 leading-tight">Zero demand traps &gt;90 days</p>
+              <p className="text-[10px] text-muted-foreground mt-2 leading-tight">Zero demand &gt;90 days</p>
+            </div>
+            <div className="flex-1 bg-card shadow-sm border border-border/50 rounded-xl p-4 flex flex-col justify-between">
+              <div>
+                  <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider mb-0.5">Dormant Capital</p>
+                  <p className="text-xl font-bold text-orange-600 dark:text-orange-500">{formatCurrency(portfolioStats.dormantCapital)}</p>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-2 leading-tight">Zero demand &lt;90 days</p>
             </div>
             <div className="flex-1 bg-card shadow-sm border border-border/50 rounded-xl p-4 flex flex-col justify-between">
               <div>
@@ -414,12 +558,15 @@ export default function InventoryRiskDashboard() {
             </div>
             <div className="flex w-full h-3 rounded-full overflow-hidden bg-muted">
                 <div className="bg-success" title={`Healthy: ${portfolioStats.healthyPct.toFixed(1)}%`} style={{ width: `${portfolioStats.healthyPct}%` }} />
+                <div className="bg-orange-500" title={`Dormant: ${portfolioStats.dormantPct?.toFixed(1) || 0}%`} style={{ width: `${portfolioStats.dormantPct || 0}%` }} />
                 <div className="bg-warning" title={`Slow: ${portfolioStats.slowPct.toFixed(1)}%`} style={{ width: `${portfolioStats.slowPct}%` }} />
                 <div className="bg-destructive" title={`Dead: ${portfolioStats.deadPct.toFixed(1)}%`} style={{ width: `${portfolioStats.deadPct}%` }} />
             </div>
-            <div className="flex justify-between text-[10px] mt-2 font-medium w-full">
-                <span className="text-success">{portfolioStats.healthyPct.toFixed(0)}% Healthy</span>
-                <span className="text-destructive">{portfolioStats.deadPct.toFixed(0)}% Dead</span>
+            <div className="flex flex-wrap items-center gap-6 text-[10px] mt-3 font-medium w-full">
+                <span className="text-success flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-success"></span> {portfolioStats.healthyPct.toFixed(0)}% Healthy</span>
+                <span className="text-orange-600 dark:text-orange-500 flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-500"></span> {(portfolioStats.dormantPct || 0).toFixed(0)}% Dormant</span>
+                <span className="text-warning flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-warning"></span> {portfolioStats.slowPct.toFixed(0)}% Slow</span>
+                <span className="text-destructive flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-destructive"></span> {portfolioStats.deadPct.toFixed(0)}% Dead</span>
             </div>
          </div>
       )}
@@ -429,7 +576,7 @@ export default function InventoryRiskDashboard() {
           {/* Toolbar */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 border-b border-border/50 bg-muted/10">
             <div className="flex items-center gap-2">
-              {["all", "Healthy", "Slow", "Dead"].map(st => {
+              {["all", "Healthy", "Slow", "Dormant", "Dead"].map(st => {
                 const isActive = statusFilter === st;
                 const activeStyle = "bg-primary text-primary-foreground shadow-sm ring-2 ring-primary/30";
                 
@@ -486,11 +633,14 @@ export default function InventoryRiskDashboard() {
                   <thead>
                     <tr className="text-left text-[11px] font-bold uppercase tracking-wider text-muted-foreground border-b border-border/40 bg-muted/5">
                       <th className="px-3 py-3" style={{ width: "3%" }}>
-                        <button onClick={e => { e.stopPropagation(); toggleSelectAll(); }} className="text-muted-foreground hover:text-foreground">
-                            {displayed.length > 0 && displayed.every(s => selectedIds.has(s.product_id))
-                              ? <CheckSquare size={15} className="text-primary" />
-                              : <Square size={15} />}
-                        </button>
+                        {statusFilter !== "Healthy" && (
+                          <button onClick={e => { e.stopPropagation(); toggleSelectAll(); }} className="text-muted-foreground hover:text-foreground">
+                              {displayed.filter(s => s.classification && s.classification !== "HEALTHY").length > 0 && 
+                               displayed.filter(s => s.classification && s.classification !== "HEALTHY").every(s => selectedIds.has(s.product_id))
+                                ? <CheckSquare size={15} className="text-primary" />
+                                : <Square size={15} />}
+                          </button>
+                        )}
                       </th>
                       <th className="px-2 py-3" style={{ width: "3%" }}></th>
                       
@@ -532,9 +682,11 @@ export default function InventoryRiskDashboard() {
                             )}>
                             
                             <td className="px-3 py-4" onClick={e => e.stopPropagation()}>
-                                <button onClick={() => toggleSelect(s.product_id)} className="text-muted-foreground hover:text-foreground mt-1">
-                                  {selectedIds.has(s.product_id) ? <CheckSquare size={15} className="text-primary" /> : <Square size={15} />}
-                                </button>
+                                {(s.classification && s.classification !== "HEALTHY") ? (
+                                  <button onClick={() => toggleSelect(s.product_id)} className="text-muted-foreground hover:text-foreground mt-1">
+                                    {selectedIds.has(s.product_id) ? <CheckSquare size={15} className="text-primary" /> : <Square size={15} />}
+                                  </button>
+                                ) : null}
                             </td>
                             <td className="px-2 py-4">
                               <ChevronDown size={14} className={cn("text-muted-foreground/40 transition-transform mt-1", isExpanded && "rotate-180 text-foreground")} />
@@ -568,15 +720,20 @@ export default function InventoryRiskDashboard() {
                                 <div className="flex items-center gap-2">
                                   {s.classification !== "HEALTHY" && s.recommended_action !== "NONE" && (
                                      <button 
-                                        onClick={() => executeSingleAction(s.product_id)}
+                                        onClick={() => executeSingleAction(s)}
+                                        disabled={s.has_active_discount || s.has_active_bundle}
                                         className={cn(
-                                            "flex items-center gap-1.5 px-2 py-1.5 text-xs font-bold rounded-md shadow-sm transition-all hover:-translate-y-0.5",
-                                            s.recommended_action === "DISPOSAL" ? "bg-destructive text-white hover:bg-destructive/90" : 
-                                            "bg-primary text-white hover:bg-primary/90"
+                                            "flex items-center gap-1.5 px-2 py-1.5 text-xs font-bold rounded-md shadow-sm transition-all",
+                                            (s.has_active_discount || s.has_active_bundle)
+                                              ? "bg-muted text-muted-foreground border cursor-not-allowed opacity-70"
+                                              : (s.recommended_action === "DISPOSAL" 
+                                                  ? "bg-destructive text-white hover:bg-destructive/90 hover:-translate-y-0.5" 
+                                                  : "bg-primary text-white hover:bg-primary/90 hover:-translate-y-0.5"
+                                                )
                                         )}
-                                        title="Execute Action"
+                                        title={(s.has_active_discount || s.has_active_bundle) ? "Already Executed" : "Execute Action"}
                                      >
-                                        <Play size={12}/> Execute
+                                        <Play size={12}/> {(s.has_active_discount || s.has_active_bundle) ? "Executed" : "Execute"}
                                      </button>
                                   )}
                                   <div className={cn("inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-md border shrink-0", typeColor[s.recommended_action] || "text-success bg-success/10 border-success/20")}>
@@ -794,12 +951,13 @@ export default function InventoryRiskDashboard() {
                                           {s.classification !== "HEALTHY" && s.recommended_action !== "NONE" && (
                                               <div className="pt-3 mt-1 flex">
                                                 <button 
-                                                    onClick={() => executeSingleAction(s.product_id)}
+                                                    onClick={() => executeSingleAction(s)}
                                                     className={cn(
                                                         "px-4 py-2 text-xs font-bold rounded-md shadow-sm transition-all hover:-translate-y-0.5",
                                                         s.recommended_action === "DISPOSAL" ? "bg-destructive text-white hover:bg-destructive/90" : 
                                                         "bg-primary text-white hover:bg-primary/90"
-                                                    )}>
+                                                    )}
+                                                    title="Execute Action">
                                                     Execute Strategy Now
                                                 </button>
                                               </div>
@@ -837,6 +995,83 @@ export default function InventoryRiskDashboard() {
             </>
           )}
       </div>
+
+      {/* Confirmation Modal */}
+      <AnimatePresence>
+        {executingItem && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-card w-full max-w-md rounded-xl shadow-xl border border-border overflow-hidden"
+            >
+              <div className="p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className={cn("p-2 rounded-full", executingState.success ? "bg-success/20 text-success" : "bg-destructive/20 text-destructive")}>
+                    {executingState.success ? <Check size={24} /> : <AlertTriangle size={24} />}
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold">Confirm Execution</h3>
+                    <p className="text-sm text-muted-foreground">{executingItem.name}</p>
+                  </div>
+                </div>
+                
+                {!executingState.success ? (
+                  <div className="text-sm mb-6 space-y-2">
+                    <p>
+                      You are about to execute a <strong className={typeColor[executingItem.recommended_action] || ""}>{executingItem.recommended_action}</strong> action.
+                    </p>
+                    {executingItem.recommended_action === "DISPOSAL" && (
+                      <p className="text-muted-foreground p-3 bg-red-500/10 rounded-md border border-red-500/20 text-red-600 dark:text-red-400">
+                        This action is irreversible. It will permanently deduct inventory and record a total financial write-off.
+                      </p>
+                    )}
+                    {(executingItem.recommended_action === "DISCOUNT" || executingItem.recommended_action === "HEAVY_DISCOUNT") && (
+                      <p className="text-muted-foreground p-3 bg-warning/10 rounded-md border border-warning/20 text-amber-600 dark:text-amber-400">
+                        This will automatically generate and activate an active promotional campaign reducing the price of this item.
+                      </p>
+                    )}
+                    {executingItem.recommended_action === "BUNDLE" && (
+                      <p className="text-muted-foreground p-3 bg-blue-500/10 rounded-md border border-blue-500/20 text-blue-600 dark:text-blue-400">
+                        This will automatically pair this item with a fast-moving complementary product and activate a virtual bundle at a slight discount.
+                      </p>
+                    )}
+                    <p className="font-medium mt-2">Are you sure you want to proceed?</p>
+                  </div>
+                ) : (
+                  <div className="py-8 text-center">
+                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-success/20 text-success mb-4">
+                      <Check size={32} />
+                    </motion.div>
+                    <p className="font-bold text-lg">Execution Successful</p>
+                    <p className="text-sm text-muted-foreground">The UI will refresh shortly.</p>
+                  </div>
+                )}
+                
+                {!executingState.success && (
+                  <div className="flex justify-end gap-3 border-t border-border pt-4 mt-2">
+                    <button 
+                      onClick={() => setExecutingItem(null)} 
+                      disabled={executingState.loading}
+                      className="px-4 py-2 rounded-lg text-sm font-medium border border-border hover:bg-muted transition-colors disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={confirmExecution} 
+                      disabled={executingState.loading}
+                      className="flex items-center justify-center min-w-[100px] gap-2 px-4 py-2 rounded-lg text-sm font-bold bg-destructive text-white hover:bg-destructive/90 transition-colors disabled:opacity-70"
+                    >
+                      {executingState.loading ? <Loader2 size={16} className="animate-spin" /> : "Confirm & Execute"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

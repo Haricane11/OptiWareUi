@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Package, Activity, Search, CalendarDays, DollarSign, Tag, TrendingUp, Layers, ChevronLeft, ChevronRight, Loader2 as LoadingIcon, Plus, X } from "lucide-react";
+import { Package, Activity, Search, CalendarDays, DollarSign, Tag, TrendingUp, Layers, ChevronLeft, ChevronRight, Loader2 as LoadingIcon, Plus, X, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -139,6 +139,26 @@ export default function BundlesPage() {
       toast.error("Failed to update bundle status due to network error.");
     } finally {
       setToggling(null);
+    }
+  };
+
+  const deleteBundle = async (bundleId) => {
+    if (!window.confirm("Are you sure you want to delete this bundle?")) return;
+    try {
+      const res = await fetch(`http://localhost:8000/analytics/bundles/${bundleId}`, {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        setBundles(prev => prev.filter(b => b.id !== bundleId));
+        toast.success("Bundle deleted successfully.");
+        // We re-fetch sales and other metrics optionally just to keep them in sync
+        fetchData();
+      } else {
+        toast.error("Failed to delete bundle.");
+      }
+    } catch (e) {
+      console.error("Failed to delete bundle:", e);
+      toast.error("Network error while deleting bundle.");
     }
   };
 
@@ -453,19 +473,28 @@ export default function BundlesPage() {
                            <CalendarDays size={14} className="opacity-70" /> {new Date(bundle.created_at).toLocaleString()}
                         </td>
                         <td className="py-3">
-                          <button 
-                            onClick={() => toggleBundleStatus(bundle.id, bundle.is_active)}
-                            disabled={toggling === bundle.id}
-                            className={cn("text-[10px] uppercase font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1.5 transition-all hover:opacity-80 disabled:opacity-50", 
-                              bundle.is_active ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
-                            )}>
-                            {toggling === bundle.id ? (
-                              <LoadingIcon size={10} className="animate-spin" />
-                            ) : bundle.is_active ? (
-                              <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-                            ) : null}
-                            {bundle.is_active ? "Active" : "Draft"}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button 
+                              onClick={() => toggleBundleStatus(bundle.id, bundle.is_active)}
+                              disabled={toggling === bundle.id}
+                              className={cn("text-[10px] uppercase font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1.5 transition-all hover:opacity-80 disabled:opacity-50", 
+                                bundle.is_active ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
+                              )}>
+                              {toggling === bundle.id ? (
+                                <LoadingIcon size={10} className="animate-spin" />
+                              ) : bundle.is_active ? (
+                                <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+                              ) : null}
+                              {bundle.is_active ? "Active" : "Draft"}
+                            </button>
+                            <button 
+                              onClick={() => deleteBundle(bundle.id)} 
+                              className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+                              title="Delete Bundle"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))

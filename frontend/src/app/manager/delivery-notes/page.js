@@ -114,11 +114,11 @@ export default function DeliveryNotes() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {([
-          { label: "Pending", value: notes.filter(n => n.status === 'pending').length, color: "text-warning", icon: Clock },
-          { label: "Allocated", value: notes.filter(n => n.status === 'allocated').length, color: "text-indigo-600", icon: Clock },
-          { label: "Picked", value: notes.filter(n => n.status === 'picked').length, color: "text-blue-600", icon: Package },
-          { label: "Shipped", value: notes.filter(n => n.status === 'shipped').length, color: "text-primary", icon: Truck },
-          { label: "Delivered", value: notes.filter(n => n.status === "delivered").length, icon: CheckCircle2, color: "text-success" },
+          { label: "Pending", value: notes.filter(n => n.status?.toLowerCase() === 'pending').length, color: "text-warning", icon: Clock },
+          { label: "Allocated", value: notes.filter(n => n.status?.toLowerCase() === 'allocated').length, color: "text-indigo-600", icon: Clock },
+          { label: "Picked", value: notes.filter(n => n.status?.toLowerCase() === 'picked').length, color: "text-blue-600", icon: Package },
+          { label: "Shipped", value: notes.filter(n => n.status?.toLowerCase() === 'shipped').length, color: "text-primary", icon: Truck },
+          { label: "Delivered", value: notes.filter(n => n.status?.toLowerCase() === "delivered").length, icon: CheckCircle2, color: "text-success" },
         ]).map((s) => (
           <div key={s.label} className="glass-card rounded-xl p-4 flex items-center gap-3">
             <div className={cn("p-2.5 rounded-xl", s.color, s.color.replace('text-', 'bg-') + '/10')}><s.icon size={18} /></div>
@@ -171,7 +171,8 @@ export default function DeliveryNotes() {
                 <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">No delivery notes found.</td></tr>
               ) : (
                 filtered.map((note, i) => {
-                  const st = statusMap[note.status] || statusMap.shipped;
+                  const currentStatus = note.status?.toLowerCase() || 'pending';
+                  const st = statusMap[currentStatus] || statusMap.shipped;
                   const Icon = st.icon;
                   return (
                     <motion.tr 

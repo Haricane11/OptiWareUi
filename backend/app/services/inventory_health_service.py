@@ -62,186 +62,8 @@ class InventoryHealthService:
         await db.flush()
         return config
 
-    # ── Dead Stock Detection ──────────────────────────────────────────
-
-    @staticmethod
-    async def detect_dead_stock(
-        db: AsyncSession,
-        config: InventoryOptimizationConfig,
-    ) -> list[InventoryHealthStatus]:
-        """
-        Dead stock = available_quantity > 0 AND no outbound movement in X days.
-
-        Outbound movement is checked via:
-        - sales_order_items (for sales orders that were DELIVERED/CLOSED)
-        - delivery_note_items (shipped_qty)
-
-        Severity = min(100, days_without_sale × 0.5)
-        """
-        threshold_days = int(config.dead_days_threshold)
-        cutoff = datetime.now(timezone.utc) - timedelta(days=threshold_days)
-
-        # Subquery: products with recent outbound (delivered/closed sales)
-        recent_outbound = (
-            select(SalesOrderItem.product_id)
-            .join(SalesOrder, SalesOrderItem.sales_order_id == SalesOrder.id)
-            .where(
-                SalesOrder.status.in_(["DELIVERED", "CLOSED"]),
-                SalesOrder.created_at >= cutoff,
-            )
-            .distinct()
-            .correlate_except(SalesOrderItem)
-        ).subquery()
-
-        # Main query: active inventory with stock but no recent outbound
-        stmt = (
-            select(
-                Inventory.product_id,
-                Inventory.warehouse_id,
-                func.sum(Inventory.available).label("total_available"),
-                func.min(Inventory.received_date).label("earliest_received"),
-                func.min(Product.unit_price).label("unit_price")
-            )
-            .join(Product, Inventory.product_id == Product.id)
-            .where(
-                Inventory.status == "ACTIVE",
-                Inventory.available > 0,
-                Inventory.product_id.notin_(select(recent_outbound.c.product_id)),
-            )
-            .group_by(Inventory.product_id, Inventory.warehouse_id)
-        )
-
-        result = await db.execute(stmt)
-        rows = result.all()
-
-        health_records = []
-        today = date.today()
-
-        for row in rows:
-            received = row.earliest_received
-            if received:
-                days_in_stock = (today - received).days
-            else:
-                days_in_stock = threshold_days
-
-            severity = min(100.0, days_in_stock * 0.5)
-            cost = float(row.unit_price) if row.unit_price else 0.0
-            total_avail = float(row.total_available)
-
-            health_records.append(
-                InventoryHealthStatus(
-                    product_id=row.product_id,
-                    warehouse_id=row.warehouse_id,
-                    health_type=HealthType.DEAD,
-                    severity_score=Decimal(str(round(severity, 2))),
-                    details={
-                        "days_without_sale": days_in_stock,
-                        "total_available": total_avail,
-                        "threshold_days": threshold_days,
-                        "potential_loss": round(total_avail * cost, 2),
-                    },
-                )
-            )
-
-        logger.info("Dead stock scan: %d issues detected", len(health_records))
-        return health_records
-
-    # ── Slow-Moving Stock Detection ───────────────────────────────────
-
-    @staticmethod
-    async def detect_slow_moving(
-        db: AsyncSession,
-        config: InventoryOptimizationConfig,
-    ) -> list[InventoryHealthStatus]:
-        """
-        Slow-moving = turnover ratio below threshold.
-        Turnover = Total outbound qty (last 90 days) / average inventory.
-        Severity = (1 - turnover_ratio) × 100, clamped to [0, 100].
-        """
-        slow_threshold = float(config.slow_turnover_threshold)
-        period_days = 90
-        cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
-
-        # Subquery: total sold qty per product in last 90 days (delivered/closed)
-        sold_subq = (
-            select(
-                SalesOrderItem.product_id,
-                func.coalesce(func.sum(SalesOrderItem.picked_qty), 0).label("sold_qty"),
-            )
-            .join(SalesOrder, SalesOrderItem.sales_order_id == SalesOrder.id)
-            .where(
-                SalesOrder.status.in_(["DELIVERED", "CLOSED"]),
-                SalesOrder.created_at >= cutoff,
-            )
-            .group_by(SalesOrderItem.product_id)
-        ).subquery()
-
-        # Main query: inventory with turnover calculation
-        stmt = (
-            select(
-                Inventory.product_id,
-                Inventory.warehouse_id,
-                func.sum(Inventory.quantity).label("avg_inventory"),
-                func.sum(Inventory.available).label("total_available"),
-                func.coalesce(sold_subq.c.sold_qty, 0).label("sold_qty"),
-                Product.unit_price.label("unit_price")
-            )
-            .join(Product, Inventory.product_id == Product.id)
-            .outerjoin(sold_subq, Inventory.product_id == sold_subq.c.product_id)
-            .where(
-                Inventory.status == "ACTIVE",
-                Inventory.quantity > 0,
-                # Exclude items that have ZERO sales AND no recent outbound movement (these are DEAD stock)
-                func.coalesce(sold_subq.c.sold_qty, 0) > 0,
-            )
-            .group_by(
-                Inventory.product_id,
-                Inventory.warehouse_id,
-                Product.unit_price,
-                sold_subq.c.sold_qty,
-            )
-        )
-
-        result = await db.execute(stmt)
-        rows = result.all()
-
-        health_records = []
-
-        for row in rows:
-            avg_inv = float(row.avg_inventory) if row.avg_inventory else 0
-            total_avail = float(row.total_available) if row.total_available else 0
-            sold = float(row.sold_qty) if row.sold_qty else 0
-            cost = float(row.unit_price) if row.unit_price else 0.0
-
-            if avg_inv <= 0:
-                continue
-
-            turnover_ratio = sold / avg_inv
-
-            if turnover_ratio >= slow_threshold:
-                continue  # Not slow-moving
-
-            severity = min(100.0, max(0.0, (1 - turnover_ratio) * 100))
-
-            health_records.append(
-                InventoryHealthStatus(
-                    product_id=row.product_id,
-                    warehouse_id=row.warehouse_id,
-                    health_type=HealthType.SLOW,
-                    severity_score=Decimal(str(round(severity, 2))),
-                    details={
-                        "turnover_ratio": round(turnover_ratio, 4),
-                        "sold_qty_90d": sold,
-                        "avg_inventory": avg_inv,
-                        "total_available": total_avail,
-                        "threshold": slow_threshold,
-                        "potential_loss": round(avg_inv * cost, 2),
-                    },
-                )
-            )
-
-        logger.info("Slow-moving scan: %d issues detected", len(health_records))
-        return health_records
+    # (detect_dead_stock and detect_slow_moving have been removed. 
+    #  Logic is now unified under InventoryClassificationService.)
 
     # ── Expiry Risk Detection ─────────────────────────────────────────
 
@@ -356,7 +178,7 @@ class InventoryHealthService:
             .where(
                 ReorderPolicy.reorder_point.isnot(None),
                 ReorderPolicy.reorder_point > 0,
-                avail_subq <= ReorderPolicy.reorder_point,
+                func.coalesce(avail_subq, 0) <= ReorderPolicy.reorder_point,
             )
         )
 
@@ -421,14 +243,19 @@ class InventoryHealthService:
 
     @staticmethod
     async def get_health_report(db: AsyncSession) -> dict:
-        """Aggregated health report from active (unresolved) statuses."""
+        """Aggregated health report from unified analytics + status."""
         from sqlalchemy.orm import selectinload
         from app.models.products import Product
         from app.models.inventory import Inventory
+        from app.models.inventory_health_analytics import InventoryHealthAnalytics, HealthClassification
         
-        stmt = (
+        # 1. Load active legacy statuses (EXPIRY, LOW)
+        stmt_status = (
             select(InventoryHealthStatus)
-            .where(InventoryHealthStatus.resolved_at.is_(None))
+            .where(
+                InventoryHealthStatus.resolved_at.is_(None),
+                InventoryHealthStatus.health_type.in_([HealthType.EXPIRY, HealthType.LOW])
+            )
             .options(
                 selectinload(InventoryHealthStatus.product).selectinload(Product.reorder_policy),
                 selectinload(InventoryHealthStatus.product).selectinload(Product.inventory_items).selectinload(Inventory.shelf),
@@ -436,16 +263,40 @@ class InventoryHealthService:
             )
             .order_by(InventoryHealthStatus.severity_score.desc())
         )
-        result = await db.execute(stmt)
-        all_statuses = result.scalars().all()
+        result_status = await db.execute(stmt_status)
+        all_statuses = result_status.scalars().all()
 
-        dead = [s for s in all_statuses if s.health_type == HealthType.DEAD]
-        slow = [s for s in all_statuses if s.health_type == HealthType.SLOW]
         expiry = [s for s in all_statuses if s.health_type == HealthType.EXPIRY]
         low = [s for s in all_statuses if s.health_type == HealthType.LOW]
 
-        # Calculate total value at risk from details and populate UI fields
+        # 2. Load unified analytics (DEAD, SLOW)
+        stmt_analytics = (
+            select(InventoryHealthAnalytics, Product)
+            .join(Product, Product.id == InventoryHealthAnalytics.product_id)
+            .options(
+                selectinload(Product.reorder_policy),
+                selectinload(Product.inventory_items).selectinload(Inventory.shelf)
+            )
+            .where(
+                InventoryHealthAnalytics.classification.in_([
+                    HealthClassification.DEAD, 
+                    HealthClassification.DORMANT,
+                    HealthClassification.SLOW_MOVING
+                ])
+            )
+            .order_by(InventoryHealthAnalytics.dead_stock_severity_score.desc())
+        )
+        result_analytics = await db.execute(stmt_analytics)
+        analytics_rows = result_analytics.all()
+
+        class DummyStatus:
+            pass
+
+        dead = []
+        dormant = []
+        slow = []
         total_value = 0.0
+
         for s in all_statuses:
             if s.details:
                 total_value += s.details.get("potential_loss", 0.0)
@@ -455,11 +306,18 @@ class InventoryHealthService:
             s.sku = s.product.sku if s.product else "Unknown"
             s.min_qty = s.product.reorder_policy.reorder_point if (s.product and s.product.reorder_policy) else 0
             
-            if s.batch:
-                s.shelf_code = s.batch.shelf.shelf_code if (s.batch and s.batch.shelf) else "Unknown"
-                s.current_qty = s.batch.quantity
+            # Prefer details['total_available'], then calculate from inventory, then fallback to batch quantity
+            if s.details and "total_available" in s.details:
+                s.current_qty = s.details["total_available"]
             else:
-                s.current_qty = s.details.get("total_available", 0) if s.details else 0
+                s.current_qty = sum([float(inv.available) for inv in s.product.inventory_items if inv.status == "ACTIVE"]) if s.product else 0
+                
+            # If batch exists, it usually means it's an EXPIRY risk specific to one batch
+            if s.batch and s.health_type == HealthType.EXPIRY:
+                s.shelf_code = s.batch.shelf.shelf_code if s.batch.shelf else "Unknown"
+                s.current_qty = s.batch.quantity # Replace with exact batch quantity for expiry
+            else:
+                # Aggregate shelves for low stock
                 if s.product and s.product.inventory_items:
                     shelves = [inv.shelf.shelf_code for inv in s.product.inventory_items if inv.shelf and inv.quantity > 0]
                     unique_shelves = list(dict.fromkeys(shelves)) # preserve order, remove duplicates
@@ -472,14 +330,72 @@ class InventoryHealthService:
                 else:
                     s.shelf_code = "Unassigned"
 
+        # Map Analytics to DummyStatus for UI compatibility
+        for an, prod in analytics_rows:
+            ds = DummyStatus()
+            ds.id = an.product_id
+            ds.product_id = an.product_id
+            ds.warehouse_id = 1
+            ds.batch_id = None
+            ds.health_type = HealthType.DEAD if an.classification == HealthClassification.DEAD else (
+                HealthType.DORMANT if an.classification == HealthClassification.DORMANT else HealthType.SLOW
+            )
+            ds.severity_score = float(an.dead_stock_severity_score)
+            ds.detected_at = an.last_evaluated_at
+            ds.resolved_at = None
+            
+            # Additional V2 details
+            ds.details = {
+                "velocity_score": float(an.velocity_score),
+                "overstock_ratio": float(an.overstock_ratio),
+                "cv": float(an.coefficient_of_variation),
+                "recommended_action": an.recommended_action.value if hasattr(an.recommended_action, 'value') else str(an.recommended_action),
+                "days_without_sale": an.days_since_last_sale
+            }
+            
+            # Common UI Fields
+            ds.product_name = prod.name
+            ds.sku = prod.sku
+            ds.min_qty = prod.reorder_policy.reorder_point if prod.reorder_policy else 0
+            
+            total_available = sum([float(inv.available) for inv in prod.inventory_items if inv.status == "ACTIVE"])
+            ds.current_qty = total_available
+            
+            # Value at risk using unified model cost
+            cost = float(prod.cost) if hasattr(prod, 'cost') and prod.cost else (float(prod.unit_price) * 0.6 if prod.unit_price else 0)
+            potential_loss = total_available * cost
+            ds.details["potential_loss"] = potential_loss
+            total_value += potential_loss
+
+            if prod.inventory_items:
+                shelves = [inv.shelf.shelf_code for inv in prod.inventory_items if inv.shelf and inv.quantity > 0]
+                unique_shelves = list(dict.fromkeys(shelves))
+                if len(unique_shelves) > 2:
+                    ds.shelf_code = f"{unique_shelves[0]}, {unique_shelves[1]} +{len(unique_shelves)-2} more"
+                elif unique_shelves:
+                    ds.shelf_code = ", ".join(unique_shelves)
+                else:
+                    ds.shelf_code = "Unassigned"
+            else:
+                ds.shelf_code = "Unassigned"
+                
+            if ds.health_type == HealthType.DEAD:
+                dead.append(ds)
+            elif ds.health_type == HealthType.DORMANT:
+                dormant.append(ds)
+            else:
+                slow.append(ds)
+
         return {
-            "total_issues": len(all_statuses),
+            "total_issues": len(dead) + len(dormant) + len(slow) + len(expiry) + len(low),
             "dead_stock_count": len(dead),
+            "dormant_count": len(dormant),
             "slow_moving_count": len(slow),
             "expiry_risk_count": len(expiry),
             "low_stock_count": len(low),
             "total_value_at_risk": round(total_value, 2),
             "dead_stock_items": dead,
+            "dormant_items": dormant,
             "slow_moving_items": slow,
             "expiry_risk_items": expiry,
             "low_stock_items": low,

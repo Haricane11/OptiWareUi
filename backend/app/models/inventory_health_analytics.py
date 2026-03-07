@@ -15,6 +15,7 @@ from app.core.database import Base
 class HealthClassification(str, enum.Enum):
     HEALTHY = "HEALTHY"
     SLOW_MOVING = "SLOW_MOVING"
+    DORMANT = "DORMANT"
     DEAD = "DEAD"
 
 
@@ -22,6 +23,7 @@ class RecommendedAction(str, enum.Enum):
     NONE = "NONE"
     BUNDLE = "BUNDLE"
     DISCOUNT = "DISCOUNT"
+    HEAVY_DISCOUNT = "HEAVY_DISCOUNT"
     DISPOSAL = "DISPOSAL"
 
 

@@ -30,6 +30,7 @@ class Product(Base):
     handling_type = Column(String(30))  # e.g. FRAGILE, STANDARD, HEAVY
     storage_temperature = Column(String(30))  # e.g. AMBIENT, CHILLED, FROZEN
     unit_price = Column(Numeric(10, 2))
+    cost = Column(Numeric(10, 2))
     turnover_rate = Column(Numeric(10, 2))
     status = Column(String(20), default="ACTIVE")
     created_at = Column(DateTime(timezone=True), server_default=func.now())

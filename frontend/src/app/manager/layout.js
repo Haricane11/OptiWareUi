@@ -6,7 +6,7 @@ import {
   LayoutDashboard, ShoppingCart, FileText, Receipt, Truck, Package,
   Layers, Eye, AlertTriangle, DollarSign, RefreshCw, Settings, LayoutGrid,
   ChevronLeft, ChevronRight, LogOut, Users, Bell, ArrowDownCircle,
-  Tag,
+  Tag, ClipboardList,
 } from "lucide-react";
 import OptiWareLogo from "@/components/OptiWareLogo";
 import { NavLink } from "@/components/NavLink";
@@ -78,6 +78,7 @@ export default function ManagerLayout({ children }) {
       items: [
         { title: "Stock Monitor", url: "/manager/stock-monitor", icon: AlertTriangle },
         { title: "Financial Loss", url: "/manager/financial-loss", icon: DollarSign },
+        { title: "Write-Off History", url: "/manager/write-off-history", icon: ClipboardList },
         { title: "Reorder Decisions", url: "/manager/reorder-decisions", icon: RefreshCw },
         { title: "Bundles", url: "/manager/bundles", icon: Package },
         { title: "Discounted Items", url: "/manager/discounts", icon: Tag },

@@ -2,8 +2,9 @@ import axios from 'axios';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-export const getSalesOrders = async (status) => {
-  const params = status ? { status } : {};
+export const getSalesOrders = async (status, page = 1, limit = 20) => {
+  const params = { page, limit };
+  if (status) params.status = status;
   const response = await axios.get(`${API_URL}/sales-orders`, { params });
   return response.data;
 };

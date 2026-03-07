@@ -1,0 +1,39 @@
+# Virtual Environment
+dam/
+venv/
+env/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node/Next.js
+node_modules/
+.next/
+out/
+build/
+dist/
+.vercel
+
+# IDE/Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project Specific
+postgresql.txt
+logistics_dataset.csv
+backend/.env
+frontend/.env.local
+frontend/.env

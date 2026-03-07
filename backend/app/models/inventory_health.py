@@ -23,12 +23,14 @@ from app.core.database import Base
 class HealthType(str, enum.Enum):
     DEAD = "DEAD"
     SLOW = "SLOW"
+    DORMANT = "DORMANT"
     EXPIRY = "EXPIRY"
     LOW = "LOW"
 
 
 class SuggestionType(str, enum.Enum):
     DISCOUNT = "DISCOUNT"
+    HEAVY_DISCOUNT = "HEAVY_DISCOUNT"
     BUNDLE = "BUNDLE"
     DISPOSAL = "DISPOSAL"
     RETURN = "RETURN"

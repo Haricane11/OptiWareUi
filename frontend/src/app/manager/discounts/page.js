@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Tag, Activity, Search, CalendarDays, Percent, Layers, ChevronLeft, ChevronRight, Loader2 as LoadingIcon } from "lucide-react";
+import { Tag, Activity, Search, CalendarDays, Percent, Layers, ChevronLeft, ChevronRight, Loader2 as LoadingIcon, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -127,6 +127,24 @@ export default function DiscountsPage() {
       toast.error("Failed to update status due to network error.");
     } finally {
       setToggling(null);
+    }
+  };
+
+  const deletePromotion = async (promoId) => {
+    if (!window.confirm("Are you sure you want to delete this discount campaign?")) return;
+    try {
+      const res = await fetch(`http://localhost:8000/analytics/promotions/${promoId}`, {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        setPromotions(prev => prev.filter(p => p.id !== promoId));
+        toast.success("Discount deleted successfully.");
+      } else {
+        toast.error("Failed to delete discount.");
+      }
+    } catch (e) {
+      console.error("Failed to delete discount:", e);
+      toast.error("Network error while deleting discount.");
     }
   };
 
@@ -305,14 +323,23 @@ export default function DiscountsPage() {
                        <CalendarDays size={14} className="opacity-70" /> {new Date(promo.created_at).toLocaleDateString()}
                     </td>
                     <td className="py-3">
-                      <button 
-                        onClick={() => toggleStatus(promo.id, promo.is_active)}
-                        disabled={toggling === promo.id}
-                        className={cn("text-[10px] uppercase font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1.5 transition-all hover:opacity-80 disabled:opacity-50", 
-                          promo.is_active ? "bg-success/15 text-success border border-success/30" : "bg-muted text-muted-foreground border border-border"
-                        )}>
-                        {promo.is_active ? "Active" : "Draft"}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => toggleStatus(promo.id, promo.is_active)}
+                          disabled={toggling === promo.id}
+                          className={cn("text-[10px] uppercase font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1.5 transition-all hover:opacity-80 disabled:opacity-50", 
+                            promo.is_active ? "bg-success/15 text-success border border-success/30" : "bg-muted text-muted-foreground border border-border"
+                          )}>
+                          {promo.is_active ? "Active" : "Draft"}
+                        </button>
+                        <button 
+                          onClick={() => deletePromotion(promo.id)} 
+                          className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+                          title="Delete Discount"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))

@@ -156,7 +156,8 @@ class CustomerUpdate(BaseModel):
     status: Optional[str] = None
 
 class SalesOrderItemCreate(BaseModel):
-    product_id: int
+    product_id: Optional[int] = None
+    bundle_id: Optional[int] = None
     ordered_qty: int
 
 class SalesOrderCreate(BaseModel):

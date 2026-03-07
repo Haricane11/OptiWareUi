@@ -145,6 +145,18 @@ def list_delivery_notes():
         rows = cur.fetchall()
         cur.close()
         conn.close()
+
+        # Post-process rows for consistency
+        for row in rows:
+            if row.get("status"):
+                row["status"] = row["status"].lower()
+            if not row.get("expected_delivery_date") and row.get("created_at"):
+                # Fallback: created_at + 3 days if no expected date set
+                if isinstance(row["created_at"], datetime.datetime):
+                    row["expected_delivery_date"] = (row["created_at"] + datetime.timedelta(days=3)).date()
+                elif isinstance(row["created_at"], datetime.date):
+                    row["expected_delivery_date"] = row["created_at"] + datetime.timedelta(days=3)
+
         return rows
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

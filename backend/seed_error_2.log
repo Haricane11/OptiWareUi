@@ -1,0 +1,180 @@
+Ensuring Table schema updates (adding cost column)...
+Ensuring PostgreSQL Enums are up to date...
+Ensuring Warehouse, Shelf, and Customer...
+Seeding 56 products...
+  Created MOCK-HEALTHY-1-6324 (HEALTHY)
+  Created MOCK-HEALTHY-2-7477 (HEALTHY)
+  Created MOCK-HEALTHY-3-1462 (HEALTHY)
+  Created MOCK-HEALTHY-4-1617 (HEALTHY)
+  Created MOCK-HEALTHY-5-7835 (HEALTHY)
+  Created MOCK-HEALTHY-6-9826 (HEALTHY)
+  Created MOCK-HEALTHY-7-1829 (HEALTHY)
+  Created MOCK-HEALTHY-8-5808 (HEALTHY)
+  Created MOCK-HEALTHY-9-1625 (HEALTHY)
+  Created MOCK-HEALTHY-10-3234 (HEALTHY)
+  Created MOCK-HEALTHY-11-2440 (HEALTHY)
+  Created MOCK-HEALTHY-12-3586 (HEALTHY)
+  Created MOCK-SLOW-13-2480 (SLOW)
+  Created MOCK-SLOW-14-8452 (SLOW)
+  Created MOCK-SLOW-15-9068 (SLOW)
+  Created MOCK-SLOW-16-3198 (SLOW)
+  Created MOCK-SLOW-17-2064 (SLOW)
+  Created MOCK-SLOW-18-8850 (SLOW)
+  Created MOCK-SLOW-19-1032 (SLOW)
+  Created MOCK-SLOW-20-7131 (SLOW)
+  Created MOCK-SLOW-21-6732 (SLOW)
+  Created MOCK-SLOW-22-7838 (SLOW)
+  Created MOCK-SLOW-23-7416 (SLOW)
+  Created MOCK-SLOW-24-5901 (SLOW)
+  Created MOCK-DORMANT-DISC-25-8539 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-26-3216 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-27-3409 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-28-8953 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-29-3439 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-30-1869 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-31-4074 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-32-8803 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-33-3081 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-34-5023 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-HEAVY-35-1045 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-36-7923 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-37-4791 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-38-3495 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-39-4825 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-40-6654 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-41-6444 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-42-8157 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-43-1267 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-44-9395 (DORMANT_HEAVY)
+  Created MOCK-DEAD-45-8576 (DEAD)
+  Created MOCK-DEAD-46-8393 (DEAD)
+  Created MOCK-DEAD-47-4589 (DEAD)
+  Created MOCK-DEAD-48-5143 (DEAD)
+  Created MOCK-DEAD-49-8550 (DEAD)
+  Created MOCK-DEAD-50-4197 (DEAD)
+  Created MOCK-DEAD-51-6571 (DEAD)
+  Created MOCK-DEAD-52-9483 (DEAD)
+  Created MOCK-DEAD-53-9366 (DEAD)
+  Created MOCK-DEAD-54-4830 (DEAD)
+  Created MOCK-VOLATILE-55-6633 (VOLATILE)
+  Created MOCK-VOLATILE-56-4755 (VOLATILE)
+Data mock complete. Computing Inventory Health...
+Traceback (most recent call last):
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 550, in _prepare_and_execute
+    self._rows = deque(await prepared_stmt.fetch(*parameters))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\asyncpg\prepared_stmt.py", line 177, in fetch
+    data = await self.__bind_execute(args, 0, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\asyncpg\prepared_stmt.py", line 268, in __bind_execute
+    data, status, _ = await self.__do_execute(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\asyncpg\prepared_stmt.py", line 257, in __do_execute
+    return await executor(protocol)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncpg/protocol/protocol.pyx", line 205, in bind_execute
+    return await waiter
+
+asyncpg.exceptions.InvalidTextRepresentationError: invalid input value for enum health_classification_enum: "DORMANT"
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 585, in execute
+    self._adapt_connection.await_(
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 563, in _prepare_and_execute
+    self._handle_exception(error)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 513, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 797, in _handle_exception
+    raise translated_error from error
+sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.Error: <class 'asyncpg.exceptions.InvalidTextRepresentationError'>: invalid input value for enum health_classification_enum: "DORMANT"
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\backend\seed_recovery_strategies.py", line 252, in <module>
+    asyncio.run(seed_data())
+  File "C:\Users\Asus\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Asus\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Asus\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 650, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "C:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\backend\seed_recovery_strategies.py", line 246, in seed_data
+    await InventoryClassificationService.compute_inventory_health(db, pid)
+  File "C:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\backend\app\services\inventory_classification_service.py", line 273, in compute_inventory_health
+    await db.flush()
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 787, in flush
+    await greenlet_spawn(self.sync_session.flush, objects=objects)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 203, in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\orm\session.py", line 4331, in flush
+    self._flush(objects)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\orm\session.py", line 4466, in _flush
+    with util.safe_reraise():
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\util\langhelpers.py", line 224, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\orm\session.py", line 4427, in _flush
+    flush_context.execute()
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\orm\unitofwork.py", line 466, in execute
+    rec.execute(self)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\orm\unitofwork.py", line 642, in execute
+    util.preloaded.orm_persistence.save_obj(
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\orm\persistence.py", line 85, in save_obj
+    _emit_update_statements(
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\orm\persistence.py", line 852, in _emit_update_statements
+    c = connection.execute(
+        ^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\base.py", line 1419, in execute
+    return meth(
+           ^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\sql\elements.py", line 527, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\base.py", line 1641, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\base.py", line 2363, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 585, in execute
+    self._adapt_connection.await_(
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 563, in _prepare_and_execute
+    self._handle_exception(error)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 513, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 797, in _handle_exception
+    raise translated_error from error
+sqlalchemy.exc.DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.InvalidTextRepresentationError'>: invalid input value for enum health_classification_enum: "DORMANT"
+[SQL: UPDATE inventory_health_analytics SET previous_severity_score=$1::NUMERIC(10, 4), classification=$2::health_classification_enum, previous_classification=$3::health_classification_enum, consecutive_confirmation_count=$4::INTEGER, last_evaluated_at=now() WHERE inventory_health_analytics.product_id = $5::INTEGER]
+[parameters: (Decimal('2.0861'), 'DORMANT', 'HEALTHY', 0, 4635)]
+(Background on this error at: https://sqlalche.me/e/20/dbapi)

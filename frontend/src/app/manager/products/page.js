@@ -251,9 +251,9 @@ export default function ProductsPage() {
 
   const filteredProducts = products.filter(
     (product) =>
-      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.category.toLowerCase().includes(searchTerm.toLowerCase())
+      (product.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (product.sku || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (product.category || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const totalPages = Math.ceil(filteredProducts.length / PAGE_SIZE);

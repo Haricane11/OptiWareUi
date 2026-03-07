@@ -1,0 +1,70 @@
+INFO:     Started server process [28060]
+INFO:     Waiting for application startup.
+INFO:app.main:Database tables created.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:59798 - "GET /analytics/health-report HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 416, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\fastapi\applications.py", line 1135, in __call__
+    await super().__call__(scope, receive, send)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\starlette\applications.py", line 107, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\fastapi\routing.py", line 115, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\Asus\AppData\Local\Programs\Python\Python311\Lib\contextlib.py", line 222, in __aexit__
+    await self.gen.athrow(typ, value, traceback)
+  File "C:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\backend\app\core\database.py", line 40, in get_db
+    yield session
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\fastapi\routing.py", line 101, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\fastapi\routing.py", line 355, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\fastapi\routing.py", line 243, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\backend\app\routers\inventory_health.py", line 44, in health_report
+    return HealthReportResponse(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\pydantic\main.py", line 250, in __init__
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pydantic_core._pydantic_core.ValidationError: 2 validation errors for HealthReportResponse
+dormant_count
+  Field required [type=missing, input_value={'total_issues': 145, 'de..._qty=127, min_qty=163)]}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+dormant_items
+  Field required [type=missing, input_value={'total_issues': 145, 'de..._qty=127, min_qty=163)]}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing

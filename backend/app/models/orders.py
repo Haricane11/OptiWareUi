@@ -56,6 +56,7 @@ class SalesOrderItem(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     ordered_qty = Column(Integer, nullable=False)
     picked_qty = Column(Integer, default=0)
+    bundle_id = Column(Integer, ForeignKey("bundles.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     order = relationship("SalesOrder", back_populates="items")

@@ -39,3 +39,27 @@ class Inventory(Base):
 
     product = relationship("Product", back_populates="inventory_items")
     shelf = relationship("Shelf", back_populates="inventory_items")
+
+
+class InventoryTransaction(Base):
+    """Immutable log of inventory movements (e.g., WRITE_OFF, RECEIPT, SALE)."""
+
+    __tablename__ = "inventory_transactions"
+    __table_args__ = (
+        CheckConstraint("quantity >= 0", name="ck_inv_trans_qty_nonneg"),
+        Index("ix_inv_trans_product_wh", "product_id", "warehouse_id"),
+        Index("ix_inv_trans_type", "transaction_type"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    transaction_type = Column(String(50), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=False)
+    quantity = Column(Integer, nullable=False, default=0)
+    reason = Column(String(255), nullable=True)
+    reference_action_id = Column(Integer, nullable=True)
+    loss_value = Column(Numeric(10, 2), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    product = relationship("Product")
+    warehouse = relationship("Warehouse")

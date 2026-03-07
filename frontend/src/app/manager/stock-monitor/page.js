@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, Clock, Package, TrendingDown, Activity as LoadingIcon, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { AlertTriangle, Clock, Package, TrendingDown, Activity as LoadingIcon, ChevronLeft, ChevronRight, Search, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 10;
@@ -71,6 +71,7 @@ function PaginationControls({ currentPage, totalItems, pageSize, onPageChange })
 const typeStyles = {
   low: "bg-destructive/10 text-destructive",
   slow: "bg-primary/10 text-primary",
+  dormant: "bg-orange-500/10 text-orange-600",
   dead: "bg-foreground/10 text-foreground",
   expiring: "bg-warning/10 text-warning",
 };
@@ -78,6 +79,7 @@ const typeStyles = {
 const rowHighlight = {
   low: "border-l-2 border-l-destructive",
   slow: "border-l-2 border-l-primary",
+  dormant: "border-l-2 border-l-orange-500",
   dead: "border-l-2 border-l-foreground/30",
   expiring: "border-l-2 border-l-warning",
 };
@@ -116,12 +118,26 @@ export default function StockMonitor() {
         const slow = data.slow_moving_items.map(i => ({
           type: "slow", product: i.product_name, sku: i.sku, shelf: i.shelf_code,
           current: i.current_qty, min: i.min_qty,
-          risk: i.details?.potential_loss || 0, days: null
+          risk: i.details?.potential_loss || 0, days: null,
+          velocity: i.details?.velocity_score ?? null,
+          overstock: i.details?.overstock_ratio ?? null,
+          action: i.details?.recommended_action ?? null,
+        }));
+        const dormant = (data.dormant_items || []).map(i => ({
+          type: "dormant", product: i.product_name, sku: i.sku, shelf: i.shelf_code,
+          current: i.current_qty, min: i.min_qty,
+          risk: i.details?.potential_loss || 0, days: i.details?.days_without_sale || null,
+          velocity: i.details?.velocity_score ?? null,
+          overstock: i.details?.overstock_ratio ?? null,
+          action: i.details?.recommended_action ?? null,
         }));
         const dead = data.dead_stock_items.map(i => ({
           type: "dead", product: i.product_name, sku: i.sku, shelf: i.shelf_code,
           current: i.current_qty, min: i.min_qty,
-          risk: i.details?.potential_loss || 0, days: i.details?.days_without_sale
+          risk: i.details?.potential_loss || 0, days: i.details?.days_without_sale,
+          velocity: i.details?.velocity_score ?? null,
+          overstock: i.details?.overstock_ratio ?? null,
+          action: i.details?.recommended_action ?? null,
         }));
         const expiring = data.expiry_risk_items.map(i => ({
           type: "expiring", product: i.product_name, sku: i.sku, shelf: i.shelf_code,
@@ -164,13 +180,14 @@ export default function StockMonitor() {
           });
         };
 
-        const allItems = [...low, ...expiring, ...dead, ...slow];
+        const allItems = [...low, ...expiring, ...dead, ...dormant, ...slow];
         setStockData(dedup(allItems));
         setSummaryData([
           { label: "Low Stock", count: data.low_stock_count || 0, icon: AlertTriangle, color: "text-destructive bg-destructive/10" },
           { label: "Slow Moving", count: data.slow_moving_count, icon: TrendingDown, color: "text-primary bg-primary/10" },
-          { label: "Expiring < 30d", count: data.expiry_risk_count, icon: Clock, color: "text-warning bg-warning/10" },
+          { label: "Dormant", count: data.dormant_count || 0, icon: Package, color: "text-orange-600 bg-orange-500/10" },
           { label: "Dead Stock", count: data.dead_stock_count, icon: Package, color: "text-foreground bg-foreground/10" },
+          { label: "Expiring", count: data.expiry_risk_count || 0, icon: Clock, color: "text-amber-500 bg-amber-500/10" },
         ]);
         setLoading(false);
       })
@@ -196,7 +213,7 @@ export default function StockMonitor() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         {summaryData.map((s, i) => (
           <motion.div
             key={s.label}
@@ -241,6 +258,7 @@ export default function StockMonitor() {
               <option value="all">All Alerts</option>
               <option value="low">Low Stock</option>
               <option value="slow">Slow Moving</option>
+              <option value="dormant">Dormant</option>
               <option value="dead">Dead Stock</option>
               <option value="expiring">Expiring</option>
             </select>
@@ -256,6 +274,8 @@ export default function StockMonitor() {
               <th className="pb-3 font-medium">Shelf</th>
               <th className="pb-3 font-medium">Current / Min</th>
               <th className="pb-3 font-medium">Capital at Risk</th>
+              <th className="pb-3 font-medium">Velocity</th>
+              <th className="pb-3 font-medium">Action</th>
               <th className="pb-3 font-medium">Timeline</th>
             </tr>
           </thead>
@@ -264,7 +284,7 @@ export default function StockMonitor() {
               <tr key={i} className={cn("border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors", rowHighlight[item.type])}>
                 <td className="py-3">
                   <span className={cn("text-[10px] uppercase font-bold px-2 py-0.5 rounded-full", typeStyles[item.type])}>
-                    {item.type === "low" ? "🔴 Low" : item.type === "slow" ? "🐢 Slow" : item.type === "dead" ? "⚫ Dead" : "🟡 Expiry"}
+                    {item.type === "low" ? "🔴 Low" : item.type === "slow" ? "🐢 Slow" : item.type === "dormant" ? "💤 Dormant" : item.type === "dead" ? "⚫ Dead" : "🟡 Expiry"}
                   </span>
                 </td>
                 <td className="py-3 font-medium">{item.product}</td>
@@ -277,6 +297,35 @@ export default function StockMonitor() {
                   <span className="text-muted-foreground"> / {item.min}</span>
                 </td>
                 <td className="py-3 font-semibold text-destructive">{item.risk}</td>
+                <td className="py-3">
+                  {item.velocity !== null && item.velocity !== undefined ? (
+                    <div className="flex items-center gap-1.5">
+                      <Zap size={12} className={item.velocity > 0.5 ? "text-green-500" : item.velocity > 0.2 ? "text-yellow-500" : "text-red-400"} />
+                      <span className="font-mono text-xs">{Number(item.velocity).toFixed(2)}</span>
+                      {item.overstock !== null && item.overstock !== undefined && (
+                        <span className="text-[10px] text-muted-foreground ml-1">OS: {Number(item.overstock).toFixed(1)}</span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
+                <td className="py-3">
+                  {item.action && item.action !== "NONE" ? (
+                    <span className={cn(
+                      "text-[10px] uppercase font-bold px-2 py-0.5 rounded-full",
+                      item.action === "DISPOSAL" ? "bg-destructive/10 text-destructive" :
+                      item.action === "BUNDLE" ? "bg-violet-500/10 text-violet-600" :
+                      item.action === "HEAVY_DISCOUNT" ? "bg-orange-500/10 text-orange-600" :
+                      item.action === "DISCOUNT" ? "bg-emerald-500/10 text-emerald-600" :
+                      "bg-muted text-muted-foreground"
+                    )}>
+                      {item.action.replace('_', ' ')}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
                 <td className="py-3 text-muted-foreground">
                   {item.days !== null ? (
                     <span className="flex items-center gap-1">

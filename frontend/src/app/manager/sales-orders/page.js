@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Search, FileOutput, Truck, CheckCircle2, Clock, Package, Plus, Trash2, X, Edit, Users } from "lucide-react";
+import { Search, FileOutput, Truck, CheckCircle2, Clock, Package, Plus, Trash2, X, Edit, Users, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,8 @@ const statusMap = {
 
 export default function SalesOrders() {
   const [orders, setOrders] = useState([]);
+  const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 20, total_pages: 0 });
+  const [currentPage, setCurrentPage] = useState(1);
   const [search, setSearch] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -35,6 +37,7 @@ export default function SalesOrders() {
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
+  const [bundles, setBundles] = useState([]);
   const { state, fetchWarehouses } = useWms();
   
   const [newOrder, setNewOrder] = useState({
@@ -42,7 +45,7 @@ export default function SalesOrders() {
     warehouse_id: "",
     priority_level: "normal",
     expected_delivery_date: "",
-    items: [{ product_id: "", ordered_qty: 1 }]
+    items: [{ type: "product", product_id: "", bundle_id: "", ordered_qty: 1 }]
   });
 
   const [newCustomer, setNewCustomer] = useState({
@@ -56,21 +59,24 @@ export default function SalesOrders() {
   const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
-    loadData();
+    loadData(currentPage);
     fetchWarehouses();
-  }, []);
+  }, [currentPage]);
 
-  const loadData = async () => {
+  const loadData = async (page = 1) => {
     try {
       setLoading(true);
-      const [ordersData, customersData, productsData] = await Promise.all([
-        getSalesOrders(),
+      const [ordersRes, customersData, productsData, bundlesRes] = await Promise.all([
+        getSalesOrders(null, page),
         getCustomers(),
-        getProducts()
+        getProducts(),
+        fetch("http://localhost:8000/analytics/bundles").then(res => res.json())
       ]);
-      setOrders(ordersData);
+      setOrders(ordersRes.data || []);
+      setPagination(ordersRes.metadata || { total: 0, page: 1, limit: 20, total_pages: 0 });
       setCustomers(customersData);
       setProducts(productsData);
+      setBundles(bundlesRes || []);
     } catch (error) {
       toast({ title: "Error", description: "Failed to load data", variant: "destructive" });
     } finally {
@@ -81,15 +87,26 @@ export default function SalesOrders() {
   const handleEditClick = async (order) => {
     try {
       const fullOrder = await getSalesOrder(order.id);
+      const bundleItems = (fullOrder.bundle_sales || []).map(bs => ({
+        type: "bundle",
+        bundle_id: bs.bundle_id.toString(),
+        product_id: "",
+        ordered_qty: bs.quantity
+      }));
+      
+      const individualItems = (fullOrder.items || []).filter(i => !i.bundle_id).map(i => ({
+        type: "product",
+        product_id: i.product_id.toString(),
+        bundle_id: "",
+        ordered_qty: i.ordered_qty
+      }));
+
       setNewOrder({
         customer_id: fullOrder.customer_id.toString(),
         warehouse_id: fullOrder.warehouse_id.toString(),
         priority_level: fullOrder.priority_level,
         expected_delivery_date: fullOrder.expected_delivery_date || "",
-        items: fullOrder.items.map(i => ({ 
-          product_id: i.product_id.toString(), 
-          ordered_qty: i.ordered_qty 
-        }))
+        items: [...bundleItems, ...individualItems]
       });
       setSelectedOrder(fullOrder);
       setIsEditing(true);
@@ -134,7 +151,7 @@ export default function SalesOrders() {
         return;
       }
       
-      const validItems = newOrder.items.filter(i => i.product_id && i.ordered_qty > 0);
+      const validItems = newOrder.items.filter(i => (i.product_id || i.bundle_id) && i.ordered_qty > 0);
       if (validItems.length === 0) {
         toast({ title: "Error", description: "Please add at least one valid item", variant: "destructive" });
         return;
@@ -145,7 +162,11 @@ export default function SalesOrders() {
         customer_id: parseInt(newOrder.customer_id),
         warehouse_id: parseInt(newOrder.warehouse_id),
         expected_delivery_date: newOrder.expected_delivery_date || null,
-        items: validItems.map(i => ({ product_id: parseInt(i.product_id), ordered_qty: parseInt(i.ordered_qty) }))
+        items: validItems.map(i => ({ 
+          product_id: i.type === "product" ? parseInt(i.product_id) : null,
+          bundle_id: i.type === "bundle" ? parseInt(i.bundle_id) : null,
+          ordered_qty: parseInt(i.ordered_qty) 
+        }))
       };
 
       if (isEditing) {
@@ -162,7 +183,7 @@ export default function SalesOrders() {
         customer_id: "",
         warehouse_id: "",
         priority_level: "normal",
-        items: [{ product_id: "", ordered_qty: 1 }]
+        items: [{ type: "product", product_id: "", bundle_id: "", ordered_qty: 1 }]
       });
       loadData();
       
@@ -206,7 +227,7 @@ export default function SalesOrders() {
   };
 
   const addItem = () => {
-    setNewOrder(prev => ({ ...prev, items: [...prev.items, { product_id: "", ordered_qty: 1 }] }));
+    setNewOrder(prev => ({ ...prev, items: [...prev.items, { type: "product", product_id: "", bundle_id: "", ordered_qty: 1 }] }));
   };
 
   const removeItem = (index) => {
@@ -217,6 +238,35 @@ export default function SalesOrders() {
     const newItems = [...newOrder.items];
     newItems[index][field] = value;
     setNewOrder(prev => ({ ...prev, items: newItems }));
+  };
+
+  const getPaginationRange = () => {
+    const total = pagination.total_pages;
+    const current = currentPage;
+    const delta = 1;
+    const range = [];
+    const rangeWithDots = [];
+    let l;
+
+    for (let i = 1; i <= total; i++) {
+      if (i === 1 || i === total || (i >= current - delta && i <= current + delta)) {
+        range.push(i);
+      }
+    }
+
+    for (let i of range) {
+      if (l) {
+        if (i - l === 2) {
+          rangeWithDots.push(l + 1);
+        } else if (i - l !== 1) {
+          rangeWithDots.push('...');
+        }
+      }
+      rangeWithDots.push(i);
+      l = i;
+    }
+
+    return rangeWithDots;
   };
 
   const filtered = orders.filter(o =>
@@ -241,7 +291,7 @@ export default function SalesOrders() {
               customer_id: "",
               warehouse_id: "",
               priority_level: "normal",
-              items: [{ product_id: "", ordered_qty: 1 }]
+              items: [{ type: "product", product_id: "", bundle_id: "", ordered_qty: 1 }]
             });
             setIsCreateModalOpen(true);
           }} className="flex items-center gap-2">
@@ -327,6 +377,54 @@ export default function SalesOrders() {
               </motion.div>
             );
           })}
+          {/* Pagination Controls */}
+          {pagination.total_pages > 1 && (
+            <div className="flex flex-col items-center gap-4 py-8 mt-4 border-t border-border/50">
+              <div className="flex items-center gap-1">
+                <button 
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1 || loading}
+                  className="p-2 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+                
+                <div className="flex items-center gap-1">
+                  {getPaginationRange().map((page, i) => (
+                    page === '...' ? (
+                      <span key={`dots-${i}`} className="px-3 py-2 text-muted-foreground font-serif">...</span>
+                    ) : (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        disabled={loading}
+                        className={cn(
+                          "w-10 h-10 flex items-center justify-center rounded-xl text-sm font-medium transition-all",
+                          currentPage === page 
+                            ? "bg-[#2D9B8B] text-white shadow-lg shadow-teal-500/20" 
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                      >
+                        {page}
+                      </button>
+                    )
+                  ))}
+                </div>
+
+                <button 
+                  onClick={() => setCurrentPage(prev => Math.min(pagination.total_pages, prev + 1))}
+                  disabled={currentPage === pagination.total_pages || loading}
+                  className="p-2 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronRight size={20} />
+                </button>
+              </div>
+              
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">
+                Showing {((pagination.page - 1) * pagination.limit) + 1} - {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} orders
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Detail panel */}
@@ -464,23 +562,51 @@ export default function SalesOrders() {
                 <Label>Order Items</Label>
                 <Button variant="outline" size="sm" onClick={addItem}><Plus size={14} className="mr-1" /> Add Item</Button>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {newOrder.items.map((item, idx) => (
-                  <div key={idx} className="flex gap-2 items-end">
-                    <div className="flex-1">
-                      <Select value={item.product_id.toString()} onValueChange={(v) => updateItem(idx, 'product_id', v)}>
-                        <SelectTrigger><SelectValue placeholder="Product" /></SelectTrigger>
-                        <SelectContent>
-                          {products.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.sku} - {p.name}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
+                  <div key={idx} className="p-3 rounded-lg border border-border/50 bg-muted/20 space-y-3">
+                    <div className="flex justify-between items-center">
+                      <div className="flex p-0.5 rounded-md bg-muted/50 border border-border w-fit">
+                        <button 
+                          onClick={() => updateItem(idx, 'type', 'product')}
+                          className={cn("px-2 py-1 text-[10px] font-bold uppercase rounded transition-all", item.type === 'product' ? "bg-background text-primary shadow-sm" : "text-muted-foreground")}
+                        >
+                          Product
+                        </button>
+                        <button 
+                          onClick={() => updateItem(idx, 'type', 'bundle')}
+                          className={cn("px-2 py-1 text-[10px] font-bold uppercase rounded transition-all", item.type === 'bundle' ? "bg-background text-primary shadow-sm" : "text-muted-foreground")}
+                        >
+                          Bundle
+                        </button>
+                      </div>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => removeItem(idx)} disabled={newOrder.items.length === 1}>
+                        <X size={14} />
+                      </Button>
                     </div>
-                    <div className="w-24">
-                      <Input type="number" min="1" value={item.ordered_qty} onChange={(e) => updateItem(idx, 'ordered_qty', e.target.value)} placeholder="Qty" />
+                    
+                    <div className="flex gap-2 items-end">
+                      <div className="flex-1">
+                        {item.type === "product" ? (
+                          <Select value={item.product_id.toString()} onValueChange={(v) => updateItem(idx, 'product_id', v)}>
+                            <SelectTrigger><SelectValue placeholder="Select Product" /></SelectTrigger>
+                            <SelectContent>
+                              {products.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.sku} - {p.name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Select value={item.bundle_id.toString()} onValueChange={(v) => updateItem(idx, 'bundle_id', v)}>
+                            <SelectTrigger><SelectValue placeholder="Select Bundle" /></SelectTrigger>
+                            <SelectContent>
+                              {bundles.map(b => <SelectItem key={b.id} value={b.id.toString()}>{b.bundle_name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+                      <div className="w-24">
+                        <Input type="number" min="1" value={item.ordered_qty} onChange={(e) => updateItem(idx, 'ordered_qty', e.target.value)} placeholder="Qty" />
+                      </div>
                     </div>
-                    <Button variant="ghost" size="icon" onClick={() => removeItem(idx)} disabled={newOrder.items.length === 1}>
-                      <X size={16} />
-                    </Button>
                   </div>
                 ))}
               </div>

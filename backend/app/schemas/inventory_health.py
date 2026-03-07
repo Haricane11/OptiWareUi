@@ -11,12 +11,14 @@ from enum import Enum
 class HealthTypeEnum(str, Enum):
     DEAD = "DEAD"
     SLOW = "SLOW"
+    DORMANT = "DORMANT"
     EXPIRY = "EXPIRY"
     LOW = "LOW"
 
 
 class SuggestionTypeEnum(str, Enum):
     DISCOUNT = "DISCOUNT"
+    HEAVY_DISCOUNT = "HEAVY_DISCOUNT"
     BUNDLE = "BUNDLE"
     DISPOSAL = "DISPOSAL"
     RETURN = "RETURN"
@@ -56,11 +58,13 @@ class HealthStatusItem(BaseModel):
 class HealthReportResponse(BaseModel):
     total_issues: int
     dead_stock_count: int
+    dormant_count: int
     slow_moving_count: int
     expiry_risk_count: int
     low_stock_count: int
     total_value_at_risk: float
     dead_stock_items: list[HealthStatusItem]
+    dormant_items: list[HealthStatusItem]
     slow_moving_items: list[HealthStatusItem]
     expiry_risk_items: list[HealthStatusItem]
     low_stock_items: list[HealthStatusItem]
@@ -103,6 +107,14 @@ class ActionSuggestionListResponse(BaseModel):
 class ApproveRejectRequest(BaseModel):
     approved_by: Optional[int] = None
     reason: Optional[str] = None
+
+
+class DisposalExecutionResponse(BaseModel):
+    status: str
+    action_id: int
+    executed_quantity: int
+    remaining_inventory: int
+    write_off_value: float
 
 
 # ── Configuration ────────────────────────────────────────────────────

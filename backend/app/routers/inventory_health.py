@@ -24,7 +24,9 @@ from app.schemas.inventory_health import (
     BundleSaleResponse,
     BundleStatusUpdateRequest,
     PromotionResponse,
+    PromotionResponse,
     PromotionStatusUpdateRequest,
+    DisposalExecutionResponse,
 )
 from app.services.inventory_health_service import InventoryHealthService
 from app.services.action_suggestion_engine import ActionSuggestionEngine
@@ -44,12 +46,16 @@ async def health_report(db: AsyncSession = Depends(get_db)):
     return HealthReportResponse(
         total_issues=report["total_issues"],
         dead_stock_count=report["dead_stock_count"],
+        dormant_count=report["dormant_count"],
         slow_moving_count=report["slow_moving_count"],
         expiry_risk_count=report["expiry_risk_count"],
         low_stock_count=report.get("low_stock_count", 0),
         total_value_at_risk=report["total_value_at_risk"],
         dead_stock_items=[
             HealthStatusItem.model_validate(s) for s in report["dead_stock_items"]
+        ],
+        dormant_items=[
+            HealthStatusItem.model_validate(s) for s in report["dormant_items"]
         ],
         slow_moving_items=[
             HealthStatusItem.model_validate(s) for s in report["slow_moving_items"]
@@ -118,15 +124,181 @@ async def reject_action(
     return ActionSuggestionResponse.model_validate(suggestion)
 
 
-@router.post("/execute-action/{suggestion_id}", response_model=ActionSuggestionResponse)
-async def execute_action(
-    suggestion_id: int,
+@router.post("/inventory-actions/create-for-product/{product_id}")
+async def create_suggestion_for_product(
+    product_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """Mark an approved suggestion as executed."""
+    """Create a suggestion on-demand for a product that doesn't have one yet."""
+    from app.models.inventory_health import (
+        InventoryActionSuggestion, SuggestionStatus, SuggestionType
+    )
+    from app.models.inventory_health_analytics import InventoryHealthAnalytics
+    from app.models.inventory import Inventory
+    from app.models.products import Product
+    from sqlalchemy import select
+    
     async with db.begin():
-        suggestion = await ActionSuggestionEngine.execute_action(db, suggestion_id)
-    return ActionSuggestionResponse.model_validate(suggestion)
+        # Check if a PENDING/APPROVED suggestion already exists
+        existing = await db.execute(
+            select(InventoryActionSuggestion).where(
+                InventoryActionSuggestion.product_id == product_id,
+                InventoryActionSuggestion.status.in_([SuggestionStatus.PENDING, SuggestionStatus.APPROVED])
+            ).limit(1)
+        )
+        existing_sug = existing.scalar_one_or_none()
+        if existing_sug:
+            return {"action_id": existing_sug.id, "created": False}
+
+        # Get classification from analytics
+        analytics = await db.execute(
+            select(InventoryHealthAnalytics).where(
+                InventoryHealthAnalytics.product_id == product_id
+            )
+        )
+        ana = analytics.scalar_one_or_none()
+        if not ana:
+            raise HTTPException(status_code=404, detail="No analytics found for this product.")
+        
+        # Get product info
+        product = (await db.execute(select(Product).where(Product.id == product_id))).scalar_one_or_none()
+        product_name = product.name if product else f"Product-{product_id}"
+        
+        # Get warehouse from inventory
+        inv_result = await db.execute(
+            select(Inventory.warehouse_id).where(
+                Inventory.product_id == product_id,
+                Inventory.status == "ACTIVE"
+            ).limit(1)
+        )
+        warehouse_id = inv_result.scalar_one_or_none() or 1
+        
+        # Determine suggestion type based on classification and analytics recommendation
+        classification = ana.classification
+        recommended_action_str = str(ana.recommended_action).replace("RecommendedAction.", "") if hasattr(ana, 'recommended_action') else ""
+        
+        if classification in ("SLOW_MOVING", "DORMANT"):
+            if recommended_action_str == "BUNDLE":
+                sug_type = SuggestionType.BUNDLE
+                reasoning = f"{classification.replace('_', ' ').title()} stock. Auto-generated bundle suggestion."
+                suggestion = InventoryActionSuggestion(
+                    product_id=product_id,
+                    warehouse_id=warehouse_id,
+                    suggestion_type=sug_type,
+                    reasoning=reasoning,
+                    severity_score=ana.dead_stock_severity_score or 0,
+                    status=SuggestionStatus.PENDING,
+                )
+            else:
+                sug_type = SuggestionType.DISCOUNT
+                discount_pct = 15.0 if classification == "SLOW_MOVING" else 20.0
+                reasoning = f"{classification.replace('_', ' ').title()} stock. Auto-generated discount suggestion."
+                
+                suggestion = InventoryActionSuggestion(
+                    product_id=product_id,
+                    warehouse_id=warehouse_id,
+                    suggestion_type=sug_type,
+                    reasoning=reasoning,
+                    severity_score=ana.dead_stock_severity_score or 0,
+                    suggested_discount_percent=discount_pct,
+                    status=SuggestionStatus.PENDING,
+                )
+        elif classification == "DEAD":
+            sug_type = SuggestionType.DISPOSAL
+            reasoning = f"Dead stock. Auto-generated disposal suggestion."
+            
+            suggestion = InventoryActionSuggestion(
+                product_id=product_id,
+                warehouse_id=warehouse_id,
+                suggestion_type=sug_type,
+                reasoning=reasoning,
+                severity_score=ana.dead_stock_severity_score or 0,
+                status=SuggestionStatus.PENDING,
+            )
+        else:
+            raise HTTPException(status_code=400, detail=f"No action needed for {classification} products.")
+        
+        db.add(suggestion)
+        await db.flush()
+        
+    return {"action_id": suggestion.id, "created": True}
+
+
+@router.post("/inventory-actions/{action_id}/execute")
+async def execute_action(
+    action_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Execute an approved suggestion (DISPOSAL, DISCOUNT, or BUNDLE)."""
+    async with db.begin():
+        result = await ActionSuggestionEngine.execute_action(db, action_id)
+    return result
+
+
+# ── Write-Off History ─────────────────────────────────────────────────
+
+@router.get("/write-off-history")
+async def get_write_off_history(
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """
+    Retrieve write-off transaction history for manager review.
+    Returns executed DISPOSAL actions with product/warehouse details.
+    """
+    from sqlalchemy import select, func, desc
+    from app.models.inventory import InventoryTransaction
+    from app.models.products import Product
+    from app.models.warehouse import Warehouse
+    import traceback
+
+    try:
+        # Count total
+        count_stmt = select(func.count(InventoryTransaction.id)).where(
+            InventoryTransaction.transaction_type == "WRITE_OFF"
+        )
+        total = (await db.execute(count_stmt)).scalar() or 0
+
+        # Fetch records with joins
+        stmt = (
+            select(
+                InventoryTransaction,
+                Product.name.label("product_name"),
+                Product.sku.label("product_sku"),
+                Product.unit_price.label("unit_price"),
+                Warehouse.name.label("warehouse_name"),
+            )
+            .outerjoin(Product, Product.id == InventoryTransaction.product_id)
+            .outerjoin(Warehouse, Warehouse.id == InventoryTransaction.warehouse_id)
+            .where(InventoryTransaction.transaction_type == "WRITE_OFF")
+            .order_by(desc(InventoryTransaction.created_at))
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = (await db.execute(stmt)).all()
+
+        history = []
+        for row in rows:
+            txn = row[0]
+            history.append({
+                "id": txn.id,
+                "product_name": row.product_name or "Unknown Product",
+                "product_sku": row.product_sku or "—",
+                "unit_price": float(row.unit_price) if row.unit_price else 0,
+                "warehouse_name": row.warehouse_name or "Unknown Warehouse",
+                "quantity": txn.quantity,
+                "reason": txn.reason,
+                "loss_value": float(txn.loss_value) if txn.loss_value else 0,
+                "reference_action_id": txn.reference_action_id,
+                "created_at": txn.created_at.isoformat() if txn.created_at else None,
+            })
+
+        return {"total": total, "history": history}
+    except Exception as e:
+        traceback.print_exc()
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── Trigger Health Scan ──────────────────────────────────────────────
@@ -295,6 +467,29 @@ async def get_bundle_sales(db: AsyncSession = Depends(get_db)):
         ))
     return response
 
+@router.delete("/bundles/{bundle_id}")
+async def delete_bundle(
+    bundle_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete a bundle and its items."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.bundle import Bundle, BundleItem
+    from fastapi import HTTPException
+    
+    async with db.begin():
+        stmt = select(Bundle).where(Bundle.id == bundle_id).options(selectinload(Bundle.items))
+        result = await db.execute(stmt)
+        bundle = result.scalars().first()
+        
+        if not bundle:
+            raise HTTPException(status_code=404, detail="Bundle not found")
+            
+        await db.delete(bundle)
+        
+    return {"message": "Bundle deleted successfully"}
+
 # ── Promotions Fetching ────────────────────────────────────────────────
 
 @router.get("/promotions", response_model=list[PromotionResponse])
@@ -372,4 +567,26 @@ async def update_promotion_status(
         approval_status=promo.approval_status.value if hasattr(promo.approval_status, 'value') else str(promo.approval_status),
         created_at=promo.created_at,
     )
+
+@router.delete("/promotions/{promo_id}")
+async def delete_promotion(
+    promo_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete a promotion."""
+    from sqlalchemy import select
+    from app.models.promotion import Promotion
+    from fastapi import HTTPException
+    
+    async with db.begin():
+        stmt = select(Promotion).where(Promotion.id == promo_id)
+        result = await db.execute(stmt)
+        promo = result.scalars().first()
+        
+        if not promo:
+            raise HTTPException(status_code=404, detail="Promotion not found")
+            
+        await db.delete(promo)
+        
+    return {"message": "Promotion deleted successfully"}
 

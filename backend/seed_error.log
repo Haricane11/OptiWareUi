@@ -1,0 +1,179 @@
+Ensuring Table schema updates (adding cost column)...
+Ensuring Warehouse, Shelf, and Customer...
+Seeding 56 products...
+  Created MOCK-HEALTHY-1-9261 (HEALTHY)
+  Created MOCK-HEALTHY-2-7504 (HEALTHY)
+  Created MOCK-HEALTHY-3-9678 (HEALTHY)
+  Created MOCK-HEALTHY-4-7677 (HEALTHY)
+  Created MOCK-HEALTHY-5-3267 (HEALTHY)
+  Created MOCK-HEALTHY-6-8211 (HEALTHY)
+  Created MOCK-HEALTHY-7-4961 (HEALTHY)
+  Created MOCK-HEALTHY-8-8067 (HEALTHY)
+  Created MOCK-HEALTHY-9-6749 (HEALTHY)
+  Created MOCK-HEALTHY-10-8874 (HEALTHY)
+  Created MOCK-HEALTHY-11-1040 (HEALTHY)
+  Created MOCK-HEALTHY-12-4148 (HEALTHY)
+  Created MOCK-SLOW-13-6628 (SLOW)
+  Created MOCK-SLOW-14-4283 (SLOW)
+  Created MOCK-SLOW-15-4037 (SLOW)
+  Created MOCK-SLOW-16-8765 (SLOW)
+  Created MOCK-SLOW-17-3004 (SLOW)
+  Created MOCK-SLOW-18-4777 (SLOW)
+  Created MOCK-SLOW-19-9056 (SLOW)
+  Created MOCK-SLOW-20-7987 (SLOW)
+  Created MOCK-SLOW-21-3841 (SLOW)
+  Created MOCK-SLOW-22-9280 (SLOW)
+  Created MOCK-SLOW-23-2475 (SLOW)
+  Created MOCK-SLOW-24-5300 (SLOW)
+  Created MOCK-DORMANT-DISC-25-5583 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-26-1949 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-27-5682 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-28-8214 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-29-4366 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-30-5320 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-31-7923 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-32-7830 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-33-7052 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-DISC-34-9520 (DORMANT_DISCOUNT)
+  Created MOCK-DORMANT-HEAVY-35-9931 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-36-4562 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-37-4309 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-38-8354 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-39-3710 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-40-9741 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-41-7489 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-42-6040 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-43-2172 (DORMANT_HEAVY)
+  Created MOCK-DORMANT-HEAVY-44-3789 (DORMANT_HEAVY)
+  Created MOCK-DEAD-45-4196 (DEAD)
+  Created MOCK-DEAD-46-7087 (DEAD)
+  Created MOCK-DEAD-47-9629 (DEAD)
+  Created MOCK-DEAD-48-1063 (DEAD)
+  Created MOCK-DEAD-49-3656 (DEAD)
+  Created MOCK-DEAD-50-9018 (DEAD)
+  Created MOCK-DEAD-51-7053 (DEAD)
+  Created MOCK-DEAD-52-8448 (DEAD)
+  Created MOCK-DEAD-53-3620 (DEAD)
+  Created MOCK-DEAD-54-6738 (DEAD)
+  Created MOCK-VOLATILE-55-3970 (VOLATILE)
+  Created MOCK-VOLATILE-56-1010 (VOLATILE)
+Data mock complete. Computing Inventory Health...
+Traceback (most recent call last):
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 550, in _prepare_and_execute
+    self._rows = deque(await prepared_stmt.fetch(*parameters))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\asyncpg\prepared_stmt.py", line 177, in fetch
+    data = await self.__bind_execute(args, 0, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\asyncpg\prepared_stmt.py", line 268, in __bind_execute
+    data, status, _ = await self.__do_execute(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\asyncpg\prepared_stmt.py", line 257, in __do_execute
+    return await executor(protocol)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncpg/protocol/protocol.pyx", line 205, in bind_execute
+    return await waiter
+
+asyncpg.exceptions.InvalidTextRepresentationError: invalid input value for enum recommended_action_enum: "HEAVY_DISCOUNT"
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 585, in execute
+    self._adapt_connection.await_(
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 563, in _prepare_and_execute
+    self._handle_exception(error)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 513, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 797, in _handle_exception
+    raise translated_error from error
+sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.Error: <class 'asyncpg.exceptions.InvalidTextRepresentationError'>: invalid input value for enum recommended_action_enum: "HEAVY_DISCOUNT"
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\backend\seed_recovery_strategies.py", line 240, in <module>
+    asyncio.run(seed_data())
+  File "C:\Users\Asus\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Asus\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Asus\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 650, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "C:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\backend\seed_recovery_strategies.py", line 234, in seed_data
+    await InventoryClassificationService.compute_inventory_health(db, pid)
+  File "C:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\backend\app\services\inventory_classification_service.py", line 273, in compute_inventory_health
+    await db.flush()
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 787, in flush
+    await greenlet_spawn(self.sync_session.flush, objects=objects)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 203, in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\orm\session.py", line 4331, in flush
+    self._flush(objects)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\orm\session.py", line 4466, in _flush
+    with util.safe_reraise():
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\util\langhelpers.py", line 224, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\orm\session.py", line 4427, in _flush
+    flush_context.execute()
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\orm\unitofwork.py", line 466, in execute
+    rec.execute(self)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\orm\unitofwork.py", line 642, in execute
+    util.preloaded.orm_persistence.save_obj(
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\orm\persistence.py", line 85, in save_obj
+    _emit_update_statements(
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\orm\persistence.py", line 852, in _emit_update_statements
+    c = connection.execute(
+        ^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\base.py", line 1419, in execute
+    return meth(
+           ^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\sql\elements.py", line 527, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\base.py", line 1641, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\base.py", line 2363, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 585, in execute
+    self._adapt_connection.await_(
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 563, in _prepare_and_execute
+    self._handle_exception(error)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 513, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+  File "c:\Users\Asus\Desktop\UIT\Sem8\DAM\Project\OptiWareUi\dam\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 797, in _handle_exception
+    raise translated_error from error
+sqlalchemy.exc.DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.InvalidTextRepresentationError'>: invalid input value for enum recommended_action_enum: "HEAVY_DISCOUNT"
+[SQL: UPDATE inventory_health_analytics SET days_since_last_sale=$1::INTEGER, turnover_ratio=$2::NUMERIC(10, 4), inventory_age_days=$3::INTEGER, dead_stock_severity_score=$4::NUMERIC(10, 4), previous_severity_score=$5::NUMERIC(10, 4), velocity_score=$6::NUMERIC(10, 4), normalized_velocity=$7::NUMERIC(10, 4), overstock_ratio=$8::NUMERIC(10, 4), recommended_action=$9::recommended_action_enum, consecutive_confirmation_count=$10::INTEGER, last_evaluated_at=now() WHERE inventory_health_analytics.product_id = $11::INTEGER]
+[parameters: (2, Decimal('0.25'), 200, Decimal('2.1894'), 0, Decimal('0.25'), Decimal('0.25'), Decimal('4.0'), 'HEAVY_DISCOUNT', 1, 4522)]
+(Background on this error at: https://sqlalche.me/e/20/dbapi)

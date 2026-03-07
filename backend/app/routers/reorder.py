@@ -71,6 +71,7 @@ async def reorder_suggestions(
         .outerjoin(Supplier, Product.supplier_id == Supplier.id)
         .where(
             ReorderPolicy.reorder_point.isnot(None),
+            ReorderPolicy.reorder_point > 0,
             avail_subq <= ReorderPolicy.reorder_point,  # Only items needing reorder
             ReorderPolicy.product_id.notin_(open_po_subq),  # Exclude items with open POs
         )
