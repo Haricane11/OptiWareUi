@@ -279,7 +279,7 @@ export default function ProductsPage() {
     { id: "sku", label: "SKU", type: "text", placeholder: "Leave empty for auto-generate" },
     { id: "category", label: "Category", type: "select", options: uniqueCategories, required: true },
     { id: "supplier_id", label: "Supplier", type: "select", required: true, options: suppliers.map(s => ({ value: s.id, label: s.name })) },
-    { id: "handling_type", label: "Handling Type", type: "select", required: true, options: ["Standard", "Fragile", "Hazardous", "Perishable"] },
+    { id: "handling_type", label: "Handling Type", type: "select", required: true, options: ["Standard", "Fragile", "standard_heavy", "standard_light", "standard"] },
     { id: "storage_temperature", label: "Storage Temperature", type: "select", required: true, options: ["Ambient", "Refrigerated", "Frozen"] },
     { id: "unit_price", label: "Unit Price", type: "number", required: true },
     { id: "turnover_rate", label: "Turnover Rate", type: "select", options: ["Low", "Medium", "High"] },

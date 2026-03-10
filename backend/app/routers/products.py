@@ -31,9 +31,23 @@ def list_products(status: Optional[str] = None):
         rows = cur.fetchall()
         cur.close()
         conn.close()
+        
+        # Mapping for output
+        turnover_map_inv = {3: "High", 2: "Medium", 1: "Low", 0: "None"}
+        
         for r in rows:
             r["unit_price"] = float(r.get("unit_price") or 0)
             r["discount_value"] = float(r.get("discount_value") or 0)
+            # Map numeric turnover_rate back to string for frontend
+            tr_val = r.get("turnover_rate")
+            if tr_val is not None:
+                # Handle Decimal or float if needed, though dict keys are int
+                try:
+                    r["turnover_rate"] = turnover_map_inv.get(int(tr_val), "Medium")
+                except (ValueError, TypeError):
+                    r["turnover_rate"] = "Medium"
+            else:
+                r["turnover_rate"] = "Medium"
         return rows
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -44,6 +58,10 @@ def create_product(product: ProductCreate):
     try:
         conn = get_conn()
         cur = conn.cursor()
+        # Mapping for input
+        turnover_map = {"High": 3, "Medium": 2, "Low": 1}
+        mapped_turnover = turnover_map.get(product.turnover_rate, 2) # Default to Medium (2)
+
         cur.execute(
             """
             INSERT INTO products (
@@ -56,7 +74,7 @@ def create_product(product: ProductCreate):
                 product.sku, product.name, product.category, product.supplier_id,
                 product.supplier_sku, product.upc_code,
                 product.handling_type, product.storage_temperature,
-                product.unit_price, product.turnover_rate, product.status,
+                product.unit_price, mapped_turnover, product.status,
             )
         )
         product_id = cur.fetchone()['id']
@@ -107,8 +125,10 @@ def update_product(product_id: int, product: ProductUpdate):
             update_fields.append("unit_price = %s")
             update_values.append(product.unit_price)
         if product.turnover_rate is not None:
+            turnover_map = {"High": 3, "Medium": 2, "Low": 1}
+            mapped_turnover = turnover_map.get(product.turnover_rate, 2)
             update_fields.append("turnover_rate = %s")
-            update_values.append(product.turnover_rate)
+            update_values.append(mapped_turnover)
         if product.status is not None:
             update_fields.append("status = %s")
             update_values.append(product.status)

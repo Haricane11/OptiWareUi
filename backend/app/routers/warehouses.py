@@ -28,7 +28,22 @@ async def get_warehouses():
                             SELECT z.*,
                             COALESCE((
                                 SELECT json_agg(shelf_data)
-                                FROM (SELECT * FROM shelves WHERE zone_id = z.id) shelf_data
+                                FROM (
+                                    SELECT s.*,
+                                    COALESCE((
+                                        SELECT json_agg(inv_data)
+                                        FROM (
+                                            SELECT inv.id, inv.quantity, inv.batch_number,
+                                                   p.sku, p.name as product_name,
+                                                   p.width as product_width, p.height as product_height, p.depth as product_depth
+                                            FROM inventory inv
+                                            JOIN products p ON inv.product_id = p.id
+                                            WHERE inv.shelf_id = s.id AND inv.quantity > 0
+                                        ) inv_data
+                                    ), '[]') as inventory
+                                    FROM shelves s 
+                                    WHERE s.zone_id = z.id
+                                ) shelf_data
                             ), '[]') as shelves
                          FROM zones z
                          WHERE z.floor_id = f.id

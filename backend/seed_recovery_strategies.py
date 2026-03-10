@@ -45,7 +45,7 @@ async def get_or_create_shelf(db: AsyncSession, warehouse_id: int):
     stmt = select(Zone).where(Zone.floor_id == floor.id).limit(1)
     zone = (await db.execute(stmt)).scalar_one_or_none()
     if not zone:
-        zone = Zone(floor_id=floor.id, zone_code="Z-A1", zone_type="STORAGE", product_category="ALL")
+        zone = Zone(floor_id=floor.id, zone_name="Z-A1", zone_type="STORAGE", product_category="ALL")
         db.add(zone)
         await db.flush()
         

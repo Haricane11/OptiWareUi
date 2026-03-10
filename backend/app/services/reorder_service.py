@@ -139,14 +139,33 @@ class ReorderService:
             1,
         )
 
-        # Determine warehouse (use first warehouse that has inventory, or default to 1)
+        # Determine warehouse (use first warehouse that has inventory)
         wh_stmt = (
             select(Inventory.warehouse_id)
             .where(Inventory.product_id == product_id)
             .limit(1)
         )
         wh_result = await db.execute(wh_stmt)
-        warehouse_id = wh_result.scalar() or 1
+        warehouse_id = wh_result.scalar()
+
+        if not warehouse_id:
+            from app.models.warehouse import Warehouse
+            fallback_wh_stmt = select(Warehouse.id).limit(1)
+            fallback_wh_result = await db.execute(fallback_wh_stmt)
+            warehouse_id = fallback_wh_result.scalar()
+
+        if not warehouse_id:
+            # This should theoretically not happen if the system is seeded
+            logger.error("No warehouses found in the system for auto-reorder")
+            return {
+                "product_id": product_id,
+                "available_stock": available_stock,
+                "reorder_point": effective_rop,
+                "needs_reorder": True,
+                "po_created": False,
+                "po_id": None,
+                "detail": "No warehouses found in system",
+            }
 
         # Create PO
         po_number = f"AUTO-{uuid4().hex[:8].upper()}"

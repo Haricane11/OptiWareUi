@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.inventory import Inventory
+from app.models.warehouse import Warehouse
 from app.models.products import Product
 from app.models.orders import SalesOrder, SalesOrderItem, DeliveryNote, DeliveryNoteItem
 from app.models.receipt import Receipt, ReceiptItem
@@ -158,11 +159,9 @@ class InventoryHealthService:
 
         wh_subq = (
             func.coalesce(
-                select(func.max(Inventory.warehouse_id))
-                .where(Inventory.product_id == Product.id)
-                .correlate(Product)
+                select(func.max(Warehouse.id))
                 .scalar_subquery(),
-                1,
+                4,
             )
         )
 
@@ -247,14 +246,14 @@ class InventoryHealthService:
         from sqlalchemy.orm import selectinload
         from app.models.products import Product
         from app.models.inventory import Inventory
+        from app.models.warehouse import Warehouse
         from app.models.inventory_health_analytics import InventoryHealthAnalytics, HealthClassification
         
         # 1. Load active legacy statuses (EXPIRY, LOW)
         stmt_status = (
             select(InventoryHealthStatus)
             .where(
-                InventoryHealthStatus.resolved_at.is_(None),
-                InventoryHealthStatus.health_type.in_([HealthType.EXPIRY, HealthType.LOW])
+                InventoryHealthStatus.resolved_at.is_(None)
             )
             .options(
                 selectinload(InventoryHealthStatus.product).selectinload(Product.reorder_policy),
@@ -264,10 +263,11 @@ class InventoryHealthService:
             .order_by(InventoryHealthStatus.severity_score.desc())
         )
         result_status = await db.execute(stmt_status)
-        all_statuses = result_status.scalars().all()
-
-        expiry = [s for s in all_statuses if s.health_type == HealthType.EXPIRY]
-        low = [s for s in all_statuses if s.health_type == HealthType.LOW]
+        all_rows = result_status.scalars().all()
+        
+        # Filter in Python to avoid asyncpg enum type mismatch issues
+        expiry = [s for s in all_rows if s.health_type == HealthType.EXPIRY]
+        low = [s for s in all_rows if s.health_type == HealthType.LOW]
 
         # 2. Load unified analytics (DEAD, SLOW)
         stmt_analytics = (
@@ -297,9 +297,10 @@ class InventoryHealthService:
         slow = []
         total_value = 0.0
 
+        all_statuses = expiry + low
         for s in all_statuses:
             if s.details:
-                total_value += s.details.get("potential_loss", 0.0)
+                total_value += float(s.details.get("potential_loss", 0.0) or 0.0)
             
             # Map dynamic UI fields for HealthStatusItem schema
             s.product_name = s.product.name if s.product else "Unknown"
@@ -310,7 +311,7 @@ class InventoryHealthService:
             if s.details and "total_available" in s.details:
                 s.current_qty = s.details["total_available"]
             else:
-                s.current_qty = sum([float(inv.available) for inv in s.product.inventory_items if inv.status == "ACTIVE"]) if s.product else 0
+                s.current_qty = sum([float(inv.available or 0) for inv in s.product.inventory_items if inv.status == "ACTIVE"]) if s.product else 0
                 
             # If batch exists, it usually means it's an EXPIRY risk specific to one batch
             if s.batch and s.health_type == HealthType.EXPIRY:
@@ -340,25 +341,25 @@ class InventoryHealthService:
             ds.health_type = HealthType.DEAD if an.classification == HealthClassification.DEAD else (
                 HealthType.DORMANT if an.classification == HealthClassification.DORMANT else HealthType.SLOW
             )
-            ds.severity_score = float(an.dead_stock_severity_score)
+            ds.severity_score = float(an.dead_stock_severity_score or 0.0)
             ds.detected_at = an.last_evaluated_at
             ds.resolved_at = None
             
             # Additional V2 details
             ds.details = {
-                "velocity_score": float(an.velocity_score),
-                "overstock_ratio": float(an.overstock_ratio),
-                "cv": float(an.coefficient_of_variation),
+                "velocity_score": float(an.velocity_score or 0.0),
+                "overstock_ratio": float(an.overstock_ratio or 0.0),
+                "cv": float(an.coefficient_of_variation or 0.0),
                 "recommended_action": an.recommended_action.value if hasattr(an.recommended_action, 'value') else str(an.recommended_action),
-                "days_without_sale": an.days_since_last_sale
+                "days_without_sale": an.days_since_last_sale or 0
             }
             
             # Common UI Fields
             ds.product_name = prod.name
             ds.sku = prod.sku
-            ds.min_qty = prod.reorder_policy.reorder_point if prod.reorder_policy else 0
+            ds.min_qty = prod.reorder_policy.reorder_point if (prod.reorder_policy and prod.reorder_policy.reorder_point) else 0
             
-            total_available = sum([float(inv.available) for inv in prod.inventory_items if inv.status == "ACTIVE"])
+            total_available = sum([float(inv.available or 0.0) for inv in prod.inventory_items if inv.status == "ACTIVE"])
             ds.current_qty = total_available
             
             # Value at risk using unified model cost

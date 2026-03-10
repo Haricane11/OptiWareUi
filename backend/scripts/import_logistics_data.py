@@ -105,7 +105,7 @@ async def setup_prerequisites(db: AsyncSession) -> Dict[str, Any]:
 
 async def get_or_create_zone_shelf(
     db: AsyncSession,
-    zone_code: str,
+    zone_name: str,
     shelf_code: str,
     product_category: str,
     floor_id: int
@@ -114,13 +114,13 @@ async def get_or_create_zone_shelf(
     
     # 1. Zone
     zone_result = await db.execute(
-        select(Zone).where(Zone.zone_code == zone_code, Zone.floor_id == floor_id)
+        select(Zone).where(Zone.zone_name == zone_name, Zone.floor_id == floor_id)
     )
     zone = zone_result.scalar_one_or_none()
     if not zone:
         zone = Zone(
             floor_id=floor_id,
-            zone_code=zone_code,
+            zone_name=zone_name,
             zone_type="STORAGE",
             product_category=product_category
         )

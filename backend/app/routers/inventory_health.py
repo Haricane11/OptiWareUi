@@ -44,24 +44,24 @@ async def health_report(db: AsyncSession = Depends(get_db)):
     """
     report = await InventoryHealthService.get_health_report(db)
     return HealthReportResponse(
-        total_issues=report["total_issues"],
-        dead_stock_count=report["dead_stock_count"],
-        dormant_count=report["dormant_count"],
-        slow_moving_count=report["slow_moving_count"],
-        expiry_risk_count=report["expiry_risk_count"],
+        total_issues=report.get("total_issues", 0),
+        dead_stock_count=report.get("dead_stock_count", 0),
+        dormant_count=report.get("dormant_count", 0),
+        slow_moving_count=report.get("slow_moving_count", 0),
+        expiry_risk_count=report.get("expiry_risk_count", 0),
         low_stock_count=report.get("low_stock_count", 0),
-        total_value_at_risk=report["total_value_at_risk"],
+        total_value_at_risk=report.get("total_value_at_risk", 0.0),
         dead_stock_items=[
-            HealthStatusItem.model_validate(s) for s in report["dead_stock_items"]
+            HealthStatusItem.model_validate(s) for s in report.get("dead_stock_items", [])
         ],
         dormant_items=[
-            HealthStatusItem.model_validate(s) for s in report["dormant_items"]
+            HealthStatusItem.model_validate(s) for s in report.get("dormant_items", [])
         ],
         slow_moving_items=[
-            HealthStatusItem.model_validate(s) for s in report["slow_moving_items"]
+            HealthStatusItem.model_validate(s) for s in report.get("slow_moving_items", [])
         ],
         expiry_risk_items=[
-            HealthStatusItem.model_validate(s) for s in report["expiry_risk_items"]
+            HealthStatusItem.model_validate(s) for s in report.get("expiry_risk_items", [])
         ],
         low_stock_items=[
             HealthStatusItem.model_validate(s) for s in report.get("low_stock_items", [])
@@ -171,11 +171,21 @@ async def create_suggestion_for_product(
                 Inventory.status == "ACTIVE"
             ).limit(1)
         )
-        warehouse_id = inv_result.scalar_one_or_none() or 1
+        warehouse_id = inv_result.scalar_one_or_none()
+        if not warehouse_id:
+            # Fallback: get any warehouse (even from non-active inventory or warehouses table)
+            from app.models.warehouse import Warehouse
+            any_wh = await db.execute(select(Warehouse.id).limit(1))
+            warehouse_id = any_wh.scalar_one_or_none()
+            if not warehouse_id:
+                raise HTTPException(status_code=400, detail="No warehouse available.")
         
         # Determine suggestion type based on classification and analytics recommendation
-        classification = ana.classification
+        classification_raw = ana.classification
+        classification = classification_raw.value if hasattr(classification_raw, 'value') else str(classification_raw)
         recommended_action_str = str(ana.recommended_action).replace("RecommendedAction.", "") if hasattr(ana, 'recommended_action') else ""
+        if hasattr(ana.recommended_action, 'value'):
+            recommended_action_str = ana.recommended_action.value
         
         if classification in ("SLOW_MOVING", "DORMANT"):
             if recommended_action_str == "BUNDLE":
@@ -204,17 +214,30 @@ async def create_suggestion_for_product(
                     status=SuggestionStatus.PENDING,
                 )
         elif classification == "DEAD":
-            sug_type = SuggestionType.DISPOSAL
-            reasoning = f"Dead stock. Auto-generated disposal suggestion."
-            
-            suggestion = InventoryActionSuggestion(
-                product_id=product_id,
-                warehouse_id=warehouse_id,
-                suggestion_type=sug_type,
-                reasoning=reasoning,
-                severity_score=ana.dead_stock_severity_score or 0,
-                status=SuggestionStatus.PENDING,
-            )
+            if recommended_action_str == "BUNDLE":
+                sug_type = SuggestionType.BUNDLE
+                reasoning = f"Dead stock with high margin. Recommend bundle creation."
+                
+                suggestion = InventoryActionSuggestion(
+                    product_id=product_id,
+                    warehouse_id=warehouse_id,
+                    suggestion_type=sug_type,
+                    reasoning=reasoning,
+                    severity_score=ana.dead_stock_severity_score or 0,
+                    status=SuggestionStatus.PENDING,
+                )
+            else:
+                sug_type = SuggestionType.DISPOSAL
+                reasoning = f"Dead stock. Auto-generated disposal suggestion."
+                
+                suggestion = InventoryActionSuggestion(
+                    product_id=product_id,
+                    warehouse_id=warehouse_id,
+                    suggestion_type=sug_type,
+                    reasoning=reasoning,
+                    severity_score=ana.dead_stock_severity_score or 0,
+                    status=SuggestionStatus.PENDING,
+                )
         else:
             raise HTTPException(status_code=400, detail=f"No action needed for {classification} products.")
         

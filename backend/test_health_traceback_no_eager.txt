@@ -1,0 +1,122 @@
+﻿HealthType members: ['DEAD', 'SLOW', 'DORMANT', 'EXPIRY', 'LOW']
+Test script connected to: OptiWareWMS as postgres
+Shelves columns in DB: RMKeyView(['id', 'zone_id', 'shelf_code', 'shelf_type', 'aisle_num', 'bay_num', 'level_num', 'bin_num', 'width', 'depth', 'height', 'location_x', 'location_y', 'location_z', 'max_weight', 'current_weight', 'used_volume', 'temperature_zone', 'status', 'created_at', 'volume', 'available_volume', 'can_store_hazardous'])
+Test script raw select * SUCCESS
+
+--- ERROR caught: ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedFunctionError'>: operator does not exist: inventory_classification = health_classification_enum
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+[SQL: SELECT inventory_health_analytics.product_id, inventory_health_analytics.days_since_last_sale, inventory_health_analytics.turnover_ratio, inventory_health_analytics.inventory_age_days, inventory_health_analytics.dead_stock_severity_score, inventory_health_analytics.previous_severity_score, inventory_health_analytics.velocity_score, inventory_health_analytics.normalized_velocity, inventory_health_analytics.overstock_ratio, inventory_health_analytics.coefficient_of_variation, inventory_health_analytics.classification, inventory_health_analytics.recommended_action, inventory_health_analytics.previous_classification, inventory_health_analytics.consecutive_confirmation_count, inventory_health_analytics.last_evaluated_at, products.id, products.sku, products.name, products.category, products.supplier_id, products.supplier_sku, products.upc_code, products.width, products.depth, products.height, products.volume, products.weight, products.handling_type, products.storage_temperature, products.unit_price, products.cost, products.turnover_rate, products.status, products.created_at 
+FROM inventory_health_analytics JOIN products ON products.id = inventory_health_analytics.product_id 
+WHERE inventory_health_analytics.classification IN ($1::health_classification_enum, $2::health_classification_enum, $3::health_classification_enum) ORDER BY inventory_health_analytics.dead_stock_severity_score DESC]
+[parameters: ('DEAD', 'DORMANT', 'SLOW_MOVING')]
+(Background on this error at: https://sqlalche.me/e/20/f405) ---
+Traceback (most recent call last):
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 526, in _prepare_and_execute
+    prepared_stmt, attributes = await adapt_connection._prepare(
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 773, in _prepare
+    prepared_stmt = await self._connection.prepare(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\asyncpg\connection.py", line 638, in prepare
+    return await self._prepare(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\asyncpg\connection.py", line 657, in _prepare
+    stmt = await self._get_statement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\asyncpg\connection.py", line 443, in _get_statement
+    statement = await self._protocol.prepare(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncpg/protocol/protocol.pyx", line 165, in prepare
+asyncpg.exceptions.UndefinedFunctionError: operator does not exist: inventory_classification = health_classification_enum
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 585, in execute
+    self._adapt_connection.await_(
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 563, in _prepare_and_execute
+    self._handle_exception(error)
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 513, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 797, in _handle_exception
+    raise translated_error from error
+sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.ProgrammingError: <class 'asyncpg.exceptions.UndefinedFunctionError'>: operator does not exist: inventory_classification = health_classification_enum
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\OptiWareLatest\OptiWareUi\backend\test_health.py", line 30, in main
+    report = await InventoryHealthService.get_health_report(db)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\OptiWareLatest\OptiWareUi\backend\app\services\inventory_health_service.py", line 289, in get_health_report
+    result_analytics = await db.execute(stmt_analytics)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 449, in execute
+    result = await greenlet_spawn(
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 201, in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\orm\session.py", line 2351, in execute
+    return self._execute_internal(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\orm\session.py", line 2249, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\orm\context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+             ^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\base.py", line 1419, in execute
+    return meth(
+           ^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\sql\elements.py", line 527, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\base.py", line 1641, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\base.py", line 2363, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 585, in execute
+    self._adapt_connection.await_(
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 563, in _prepare_and_execute
+    self._handle_exception(error)
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 513, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 797, in _handle_exception
+    raise translated_error from error
+sqlalchemy.exc.ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedFunctionError'>: operator does not exist: inventory_classification = health_classification_enum
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+[SQL: SELECT inventory_health_analytics.product_id, inventory_health_analytics.days_since_last_sale, inventory_health_analytics.turnover_ratio, inventory_health_analytics.inventory_age_days, inventory_health_analytics.dead_stock_severity_score, inventory_health_analytics.previous_severity_score, inventory_health_analytics.velocity_score, inventory_health_analytics.normalized_velocity, inventory_health_analytics.overstock_ratio, inventory_health_analytics.coefficient_of_variation, inventory_health_analytics.classification, inventory_health_analytics.recommended_action, inventory_health_analytics.previous_classification, inventory_health_analytics.consecutive_confirmation_count, inventory_health_analytics.last_evaluated_at, products.id, products.sku, products.name, products.category, products.supplier_id, products.supplier_sku, products.upc_code, products.width, products.depth, products.height, products.volume, products.weight, products.handling_type, products.storage_temperature, products.unit_price, products.cost, products.turnover_rate, products.status, products.created_at 
+FROM inventory_health_analytics JOIN products ON products.id = inventory_health_analytics.product_id 
+WHERE inventory_health_analytics.classification IN ($1::health_classification_enum, $2::health_classification_enum, $3::health_classification_enum) ORDER BY inventory_health_analytics.dead_stock_severity_score DESC]
+[parameters: ('DEAD', 'DORMANT', 'SLOW_MOVING')]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+

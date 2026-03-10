@@ -52,6 +52,35 @@ class BatchResponse(BaseModel):
         from_attributes = True
 
 
+class InventoryListItem(BaseModel):
+    id: int
+    product_id: int
+    product_name: str
+    product_sku: str
+    product_unit_price: Optional[float] = None
+    warehouse_id: int
+    warehouse_name: str
+    zone_id: Optional[int] = None
+    zone_name: Optional[str] = None
+    shelf_id: int
+    shelf_code: str
+    aisle_num: Optional[int] = None
+    shelf_total_volume: Optional[float] = None
+    batch_number: Optional[str] = None
+    quantity: int
+    allocated: int
+    available: int
+    total_volume: Optional[float] = None
+    total_weight: Optional[float] = None
+    expiry_date: Optional[date] = None
+    received_date: Optional[date] = None
+    status: str
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 # ── Sales ─────────────────────────────────────────────────────────────
 class SalesOrderItemCreate(BaseModel):
     # product_id: int
@@ -154,7 +183,7 @@ class FloorCreate(BaseModel):
 
 class ZoneCreate(BaseModel):
     floor_id: int
-    zone_code: str
+    zone_name: str
     zone_type: str
     width: Optional[float] = None
     depth: Optional[float] = None

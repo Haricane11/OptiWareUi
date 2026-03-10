@@ -173,35 +173,161 @@ def get_placement_suggestions():
 def suggest_placement(req: PlaceProductRequest):
     """
     1. Look up product by SKU.
-    2. Run placement engine to find optimal shelf.
-    3. Record as PENDING in receipt_items.
-    4. Return shelf suggestion.
+    2. Consolidate same-SKU: check if a pending suggestion already exists for
+       this SKU in the same warehouse and try to reuse that shelf first.
+    3. Run placement engine to find optimal shelf (fallback).
+    4. Record as PENDING in receipt_items.
+    5. Return shelf suggestion.
     """
     conn = get_conn()
     cur = conn.cursor()
     try:
         # Check product
         cur.execute(
-            "SELECT id, name FROM products WHERE sku = %s",
+            "SELECT id, name, category, handling_type, turnover_rate FROM products WHERE sku = %s",
             (req.sku,)
         )
         product = cur.fetchone()
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
 
-        # Find shelf using measured dimensions from request
-        shelf = find_optimal_shelf(
-            conn, 
-            product["id"], 
-            req.quantity, 
-            req.warehouse_id,
-            measured_width=req.measured_width or 0,
-            measured_depth=req.measured_depth or 0,
-            measured_height=req.measured_height or 0,
-            measured_weight=req.measured_weight or 0
+        u_width  = float(req.measured_width  or 0)
+        u_depth  = float(req.measured_depth  or 0)
+        u_height = float(req.measured_height or 0)
+        u_weight = float(req.measured_weight or 0)
+        unit_vol = u_width * u_depth * u_height
+
+        product_dict = {
+            "category":      product["category"],
+            "handling_type": product["handling_type"],
+            "turnover_rate": product["turnover_rate"],
+        }
+
+        # ── Step A: Check for an existing pending suggestion for this SKU ────
+        # Find which shelf(s) are already reserved for this SKU+warehouse.
+        # Since used_volume is updated immediately when a suggestion is created,
+        # available_volume in the DB is already the correct remaining capacity —
+        # no need to subtract reserved_vol again (that would double-count).
+        cur.execute(
+            """
+            SELECT DISTINCT ps.shelf_id
+            FROM placement_suggestions ps
+            JOIN receipt_items ri ON ps.receipt_item_id = ri.id
+            JOIN products p       ON ri.product_id = p.id
+            JOIN shelves  s       ON ps.shelf_id   = s.id
+            JOIN zones    z       ON s.zone_id     = z.id
+            JOIN floors   f       ON z.floor_id    = f.id
+            WHERE ps.status = 'pending'
+              AND p.sku         = %s
+              AND f.warehouse_id = %s
+            """,
+            (req.sku, req.warehouse_id),
         )
+        reserved_shelf_ids = [int(r["shelf_id"]) for r in cur.fetchall()]
+
+        shelf = None
+        quantity_placed = None
+
+        if reserved_shelf_ids:
+            # Fetch live shelf capacity — available_volume already reflects used_volume deductions
+            cur.execute(
+                """
+                SELECT s.id AS shelf_id, s.shelf_code, s.aisle_num, s.bay_num, s.level_num,
+                       s.bin_num, s.max_weight, s.current_weight,
+                       CAST(s.available_volume AS FLOAT) AS available_volume,
+                       z.zone_name, z.product_category
+                FROM shelves s
+                JOIN zones z ON s.zone_id = z.id
+                WHERE s.id IN %s AND s.status = 'active'
+                """,
+                (tuple(reserved_shelf_ids),),
+            )
+            reserved_shelf_rows = [dict(r) for r in cur.fetchall()]
+
+            if reserved_shelf_rows:
+                shelf, _, quantity_placed = match_shelf_in_memory(
+                    reserved_shelf_rows,
+                    product_dict,
+                    req.quantity,
+                    measured_width=u_width,
+                    measured_depth=u_depth,
+                    measured_height=u_height,
+                    measured_weight=u_weight,
+                )
+
+        # ── Step B: Fresh search (fallback) ──────────────────────────────────
+        if shelf is None:
+            # Fetch all active shelves for this warehouse
+            cur.execute(
+                """
+                SELECT s.id AS shelf_id, s.shelf_code, s.aisle_num, s.bay_num, s.level_num,
+                       s.bin_num, s.max_weight, s.current_weight,
+                       CAST(s.available_volume AS FLOAT) AS available_volume,
+                       z.zone_name, z.product_category
+                FROM shelves s
+                JOIN zones z ON s.zone_id = z.id
+                JOIN floors f ON z.floor_id = f.id
+                WHERE f.warehouse_id = %s AND s.status = 'active'
+                ORDER BY s.aisle_num, s.bay_num, s.level_num
+                """,
+                (req.warehouse_id,),
+            )
+            all_shelves = [dict(r) for r in cur.fetchall()]
+
+            # Build a map: shelf_id → SKU already reserved (pending suggestions or live inventory)
+            # so we don't scatter items of THIS sku onto shelves occupied by OTHER skus.
+            cur.execute(
+                """
+                SELECT ps.shelf_id, p.sku
+                FROM placement_suggestions ps
+                JOIN receipt_items ri ON ps.receipt_item_id = ri.id
+                JOIN products p       ON ri.product_id = p.id
+                JOIN shelves  s       ON ps.shelf_id   = s.id
+                JOIN zones    z       ON s.zone_id     = z.id
+                JOIN floors   f       ON z.floor_id    = f.id
+                WHERE ps.status = 'pending' AND f.warehouse_id = %s
+                """,
+                (req.warehouse_id,),
+            )
+            shelf_sku_map: dict[int, str] = {int(r["shelf_id"]): r["sku"] for r in cur.fetchall()}
+
+            # Also honour live inventory reservations
+            cur.execute(
+                """
+                SELECT inv.shelf_id, p.sku
+                FROM inventory inv
+                JOIN products p ON inv.product_id = p.id
+                WHERE inv.warehouse_id = %s
+                """,
+                (req.warehouse_id,),
+            )
+            for r in cur.fetchall():
+                sid = int(r["shelf_id"])
+                if sid not in shelf_sku_map:
+                    shelf_sku_map[sid] = r["sku"]
+
+            # Only pass shelves that are free OR already reserved for THIS sku
+            available = [
+                s for s in all_shelves
+                if shelf_sku_map.get(s["shelf_id"]) in (None, req.sku)
+            ]
+
+            shelf, _, quantity_placed = match_shelf_in_memory(
+                available,
+                product_dict,
+                req.quantity,
+                measured_width=u_width,
+                measured_depth=u_depth,
+                measured_height=u_height,
+                measured_weight=u_weight,
+            )
+
         if not shelf:
             raise HTTPException(status_code=422, detail="No suitable shelf found")
+
+        # Normalise shelf dict key expected by callers
+        if "shelf_id" not in shelf and "id" in shelf:
+            shelf["shelf_id"] = shelf["id"]
 
         # Get/Create Receipt
         receipt_id = _get_or_create_receipt(cur, conn, req.po_number, req.warehouse_id)
@@ -226,7 +352,7 @@ def suggest_placement(req: PlaceProductRequest):
         receipt_item_id = cur.fetchone()["id"]
 
         # -------------------------------------------------------------------
-        # NEW: Persist suggestion to `placement_suggestions`
+        # Persist suggestion to `placement_suggestions`
         # -------------------------------------------------------------------
         cur.execute(
             """
@@ -238,6 +364,18 @@ def suggest_placement(req: PlaceProductRequest):
             (receipt_item_id, shelf["shelf_id"], req.quantity)
         )
         suggestion_id = cur.fetchone()["id"]
+
+        # Reserve capacity on the shelf so subsequent suggest-placement calls
+        # see accurate remaining space (used_volume drives available_volume via a generated col).
+        cur.execute(
+            """
+            UPDATE shelves
+            SET used_volume    = used_volume    + %s,
+                current_weight = current_weight + %s
+            WHERE id = %s
+            """,
+            (total_vol, round(u_weight, 4), shelf["shelf_id"])
+        )
 
         conn.commit()
 
@@ -1070,7 +1208,20 @@ def inventory_shelf_view(warehouse_id: Optional[int] = None):
         rows = cur.fetchall()
 
         # Convert to list of dicts and fix Decimals
-        result = [_fix_decimals(dict(r)) for r in rows]
+        turnover_map_inv = {3: "High", 2: "Medium", 1: "Low", 0: "None"}
+        result = []
+        for r in rows:
+            d = dict(r)
+            # Map numeric turnover_rate back to string
+            tr_val = d.get("turnover_rate")
+            if tr_val is not None:
+                try:
+                    d["turnover_rate"] = turnover_map_inv.get(int(tr_val), "Medium")
+                except (ValueError, TypeError):
+                    d["turnover_rate"] = "Medium"
+            else:
+                d["turnover_rate"] = "Medium"
+            result.append(_fix_decimals(d))
         return result
 
     except HTTPException:

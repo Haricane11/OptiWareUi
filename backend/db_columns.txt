@@ -1,0 +1,15 @@
+id
+product_id
+shelf_id
+warehouse_id
+batch_number
+quantity
+allocated
+total_volume
+total_weight
+expiry_date
+received_date
+status
+created_at
+available
+is_sealed

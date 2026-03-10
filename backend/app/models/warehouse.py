@@ -22,7 +22,8 @@ class Warehouse(Base):
     width = Column(Numeric)
     height = Column(Numeric)
     depth = Column(Numeric)
-    #code = Column(String(10), unique=True, nullable=False)
+    code = Column(String(20))
+    role = Column(String(50))
 
     floors = relationship("Floor", back_populates="warehouse")
 
@@ -62,14 +63,18 @@ class Zone(Base):
 
     id = Column(Integer, primary_key=True)
     floor_id = Column(Integer, ForeignKey("floors.id"), nullable=False)
-    zone_code = Column(String(30), nullable=False)
-    zone_type = Column(String(30), nullable=False)
+    zone_code = Column(String(30), nullable=True)
+    zone_type = Column(String(30), nullable=True)
     width = Column(Numeric(10, 2))
     depth = Column(Numeric(10, 2))
     status = Column(String(20), default="ACTIVE")
     location_x = Column(Numeric(10, 2))
     location_y = Column(Numeric(10, 2))
     product_category = Column(String(100), nullable=False)
+    name = Column(String(100))
+    code = Column(String(30))
+    zone_name = Column(String(100))
+    floor_number = Column(Integer)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     floor = relationship("Floor", back_populates="zones")
@@ -98,8 +103,8 @@ class Shelf(Base):
 
     id = Column(Integer, primary_key=True)
     zone_id = Column(Integer, ForeignKey("zones.id"), nullable=False)
-    shelf_code = Column(String(30), nullable=False)
-    shelf_type = Column(String(30), ForeignKey("shelf_types.type_code"))
+    shelf_code = Column(String(30), nullable=True)
+    shelf_type = Column(String(30), ForeignKey("shelf_types.type_code"), nullable=True)
     aisle_num = Column(Integer)
     bay_num = Column(Integer)
     level_num = Column(Integer)
@@ -119,6 +124,7 @@ class Shelf(Base):
     can_store_hazardous = Column(Boolean, default=False)
     status = Column(String(20), default="ACTIVE")
     product_category = Column(String(100))
+    zone_code = Column(String(30))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     zone = relationship("Zone", back_populates="shelves")

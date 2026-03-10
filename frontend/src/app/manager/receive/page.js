@@ -354,7 +354,7 @@ function ReceiveContent() {
               className="px-3 py-1.5 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 flex items-center gap-2 disabled:opacity-50"
             >
               {isGenerating ? <Loader2 size={14} className="animate-spin" /> : <ScanLine size={14} />}
-              {isGenerating ? "Generating..." : "Generate Placement Suggestions"}
+              {isGenerating ? "Generating..." : "Generate Placement "}
             </button>
           )}
           

@@ -74,7 +74,6 @@ class InventoryService:
 
             take = min(batch.available, remaining)
             batch.allocated += take
-            batch.available -= take
             remaining -= take
 
             allocated_from.append({
@@ -132,7 +131,6 @@ class InventoryService:
 
             give_back = min(batch.allocated, remaining)
             batch.allocated -= give_back
-            batch.available += give_back
             remaining -= give_back
 
             released_from.append({
@@ -252,7 +250,6 @@ class InventoryService:
                 batch_number=item.batch_number,
                 quantity=item.received_qty,
                 allocated=0,
-                available=item.received_qty,
                 total_volume=unit_volume * item.received_qty if unit_volume else None,
                 total_weight=unit_weight * item.received_qty if unit_weight else None,
                 expiry_date=item.expiry_date,
@@ -323,3 +320,154 @@ class InventoryService:
         )
         result = await db.execute(stmt)
         return result.scalars().all()
+
+    @staticmethod
+    async def get_all_inventory(db: AsyncSession) -> list:
+        """Get all active inventory with product, shelf, and zone details."""
+        from app.models.warehouse import Shelf, Warehouse, Zone
+        
+        stmt = (
+            select(
+                Inventory,
+                Product.name.label("product_name"),
+                Product.sku.label("product_sku"),
+                Product.unit_price.label("product_unit_price"),
+                Shelf.shelf_code.label("shelf_code"),
+                Shelf.volume.label("shelf_total_volume"),
+                Shelf.aisle_num.label("aisle_num"),
+                Shelf.zone_id.label("zone_id"),
+                Zone.zone_name.label("zone_name"),
+                Warehouse.name.label("warehouse_name")
+            )
+            .join(Product, Inventory.product_id == Product.id)
+            .join(Shelf, Inventory.shelf_id == Shelf.id)
+            .join(Zone, Shelf.zone_id == Zone.id)
+            .join(Warehouse, Inventory.warehouse_id == Warehouse.id)
+            .where(Inventory.quantity > 0)
+            .order_by(Inventory.created_at.desc())
+        )
+        result = await db.execute(stmt)
+        rows = result.all()
+        
+        output = []
+        for row in rows:
+            inv = row.Inventory
+            data = {
+                "id": inv.id,
+                "product_id": inv.product_id,
+                "product_name": row.product_name,
+                "product_sku": row.product_sku,
+                "product_unit_price": float(row.product_unit_price) if row.product_unit_price else 0,
+                "warehouse_id": inv.warehouse_id,
+                "warehouse_name": row.warehouse_name,
+                "zone_id": row.zone_id,
+                "zone_name": row.zone_name,
+                "shelf_id": inv.shelf_id,
+                "shelf_code": row.shelf_code,
+                "aisle_num": row.aisle_num,
+                "shelf_total_volume": float(row.shelf_total_volume) if row.shelf_total_volume else None,
+                "batch_number": inv.batch_number,
+                "quantity": inv.quantity,
+                "allocated": inv.allocated,
+                "available": inv.available,
+                "total_volume": float(inv.total_volume) if inv.total_volume else None,
+                "total_weight": float(inv.total_weight) if inv.total_weight else None,
+                "expiry_date": inv.expiry_date,
+                "received_date": inv.received_date,
+                "status": inv.status,
+                "created_at": inv.created_at,
+            }
+            output.append(data)
+        return output
+
+    @staticmethod
+    async def dispose_stock(
+        db: AsyncSession,
+        product_id: int,
+        warehouse_id: int | None,
+        qty: int,
+        reason: str,
+        reference_action_id: int | None = None,
+    ) -> dict:
+        """
+        Deduct stock for disposal/write-off.
+        Records an InventoryTransaction of type WRITE_OFF.
+        If warehouse_id is None, it deducts from available stock across all warehouses (FEFO).
+        """
+        from app.models.inventory import InventoryTransaction
+        from decimal import Decimal
+
+        if qty <= 0:
+            return {"executed_quantity": 0, "write_off_value": 0.0}
+
+        # Get product for unit cost
+        product_stmt = select(Product).where(Product.id == product_id)
+        pr = await db.execute(product_stmt)
+        product = pr.scalar_one_or_none()
+        if not product:
+            raise EntityNotFoundError("Product", product_id)
+
+        unit_cost = float(product.cost if hasattr(product, 'cost') and product.cost else (product.unit_price if product.unit_price else 0))
+
+        # Find available inventory
+        conditions = [
+            Inventory.product_id == product_id,
+            Inventory.status == "ACTIVE",
+            Inventory.available > 0,
+        ]
+        if warehouse_id:
+            conditions.append(Inventory.warehouse_id == warehouse_id)
+
+        stmt = (
+            select(Inventory)
+            .where(*conditions)
+            .order_by(Inventory.expiry_date.asc().nullslast(), Inventory.created_at.asc())
+            .with_for_update()
+        )
+        result = await db.execute(stmt)
+        batches = result.scalars().all()
+
+        remaining = qty
+        total_disposed = 0
+        
+        for batch in batches:
+            if remaining <= 0:
+                break
+
+            take = min(batch.available, remaining)
+            batch.quantity -= take
+            # available is automatically updated by the model property usually, 
+            # as available = quantity - allocated.
+            
+            remaining -= take
+            total_disposed += take
+            
+            if batch.quantity <= 0:
+                batch.status = "DEPLETED"
+
+        total_loss_value = Decimal("0")
+        if total_disposed > 0:
+            total_loss_value = Decimal(str(total_disposed * unit_cost))
+            
+            trans = InventoryTransaction(
+                transaction_type="WRITE_OFF",
+                product_id=product_id,
+                warehouse_id=warehouse_id or (batches[0].warehouse_id if batches else None),
+                quantity=total_disposed,
+                reason=reason,
+                reference_action_id=reference_action_id,
+                loss_value=total_loss_value
+            )
+            db.add(trans)
+
+        logger.info(
+            "Disposed %d units of product %d. Loss value: %f",
+            total_disposed, product_id, float(total_loss_value)
+        )
+        
+        return {
+            "status": "success",
+            "executed_quantity": total_disposed,
+            "write_off_value": float(total_loss_value),
+            "message": f"Successfully disposed {total_disposed} units via write-off. Total loss: ${float(total_loss_value):,.2f}."
+        }

@@ -64,15 +64,20 @@ class InventoryClassificationService:
         overstock_ratio: float = 0.0
     ) -> RecommendedAction:
         """
-        Calculates margin to override action for SLOW_MOVING products and sets defaults.
-        SLOW_MOVING -> BUNDLE (if margin > 0.4)
+        Calculates margin to override action for products and sets defaults.
+        SLOW_MOVING/DEAD -> BUNDLE (if margin > 0.4)
         DORMANT -> HEAVY_DISCOUNT (if overstock > 3)
         DORMANT -> DISCOUNT
-        DEAD -> DISPOSAL
+        DEAD -> DISPOSAL (if margin < 0.4)
         """
         class_str = getattr(classification, 'value', str(classification))
 
         if class_str == "DEAD":
+            if unit_price <= 0:
+                return RecommendedAction.DISPOSAL
+            margin_ratio = (unit_price - cost) / unit_price
+            if margin_ratio >= 0.4:
+                return RecommendedAction.BUNDLE
             return RecommendedAction.DISPOSAL
         elif class_str == "DORMANT":
             if overstock_ratio > 3.0:
@@ -210,11 +215,11 @@ class InventoryClassificationService:
             severity_score *= 0.8
             
         # 6. Base Classification Thresholds
-        if severity_score < 1.0:
+        if severity_score < 1.5:
             target_classification = HealthClassification.HEALTHY
-        elif 1.0 <= severity_score < 1.8:
+        elif 1.5 <= severity_score < 2.5:
             target_classification = HealthClassification.SLOW_MOVING
-        elif 1.8 <= severity_score < 2.6:
+        elif 2.5 <= severity_score < 3.5:
             target_classification = HealthClassification.DORMANT
         else:
             target_classification = HealthClassification.DEAD
@@ -415,34 +420,41 @@ class InventoryClassificationService:
             .subquery()
         )
 
+        # Subquery for total available inventory per product
+        inv_subq = (
+            select(func.coalesce(func.sum(Inventory.available), 0))
+            .where(Inventory.product_id == Product.id)
+            .correlate(Product)
+            .label("total_available")
+        )
+
+        # Subquery for latest suggestion ID per product
+        sug_subq = (
+            select(func.max(InventoryActionSuggestion.id))
+            .where(
+                and_(
+                    InventoryActionSuggestion.product_id == Product.id,
+                    InventoryActionSuggestion.status.in_([SuggestionStatus.PENDING, SuggestionStatus.APPROVED])
+                )
+            )
+            .correlate(Product)
+            .label("action_id")
+        )
+
         stmt = (
             select(
                 InventoryHealthAnalytics, 
                 Product.name, 
                 Product.sku, 
                 Product.unit_price,
-                func.coalesce(func.sum(Inventory.available), 0).label("total_available"),
-                func.max(InventoryActionSuggestion.id).label("action_id"),
+                inv_subq,
+                sug_subq,
                 (func.coalesce(active_promo_sq.c.promo_count, 0) > 0).label("has_active_discount"),
                 (func.coalesce(active_bundle_sq.c.bundle_count, 0) > 0).label("has_active_bundle")
             )
             .join(Product, Product.id == InventoryHealthAnalytics.product_id)
-            .outerjoin(Inventory, Inventory.product_id == Product.id)
-            .outerjoin(
-                InventoryActionSuggestion, 
-                and_(
-                    InventoryActionSuggestion.product_id == Product.id,
-                    InventoryActionSuggestion.status.in_([SuggestionStatus.PENDING, SuggestionStatus.APPROVED])
-                )
-            )
             .outerjoin(active_promo_sq, active_promo_sq.c.product_id == Product.id)
             .outerjoin(active_bundle_sq, active_bundle_sq.c.product_id == Product.id)
-            .group_by(
-                InventoryHealthAnalytics.product_id, 
-                Product.id,
-                active_promo_sq.c.promo_count,
-                active_bundle_sq.c.bundle_count
-            )
         )
         
         if sort_by == "velocity":
@@ -450,7 +462,6 @@ class InventoryClassificationService:
         elif sort_by == "overstock":
             sort_col = InventoryHealthAnalytics.overstock_ratio
         elif sort_by == "capital":
-            # Fallback to severity sorting down to DB complexity, capital risk calculated visually in UI
             sort_col = InventoryHealthAnalytics.dead_stock_severity_score
         else:
             sort_col = InventoryHealthAnalytics.dead_stock_severity_score

@@ -562,83 +562,25 @@ class ActionSuggestionEngine:
             suggestion.status = SuggestionStatus.APPROVED
 
         if suggestion.suggestion_type == SuggestionType.DISPOSAL:
-            # Transaction Ledger Consistency (Idempotency fallback)
-            trans_stmt = select(InventoryTransaction).where(
-                InventoryTransaction.reference_action_id == suggestion_id,
-                InventoryTransaction.transaction_type == "WRITE_OFF"
-            )
-            existing_trans = (await db.execute(trans_stmt)).scalar_one_or_none()
-            if existing_trans:
-                raise HTTPException(status_code=409, detail="Write-off transaction already exists.")
-
-            # We need to deduct from the exact inventory record, usually tracked by batch_id
-            product_stmt = select(Product).where(Product.id == suggestion.product_id)
-            pr = await db.execute(product_stmt)
-            product = pr.scalar_one_or_none()
-            unit_cost = float(product.cost if product and product.cost else (product.unit_price if product and product.unit_price else 0))
-
-            # Retrieve the specific batch if batch_id is set, otherwise default to oldest active inventory
-            if suggestion.batch_id:
-                inv_stmt = select(Inventory).where(Inventory.id == suggestion.batch_id).with_for_update()
-            else:
-                inv_stmt = (
-                    select(Inventory)
-                    .where(
-                        Inventory.product_id == suggestion.product_id,
-                        Inventory.warehouse_id == suggestion.warehouse_id,
-                        Inventory.status == "ACTIVE",
-                        Inventory.available > 0
-                    )
-                    .order_by(Inventory.created_at.asc())
-                    .limit(1)
-                    .with_for_update()
-                )
-
-            inv_exec = await db.execute(inv_stmt)
-            inventory = inv_exec.scalar_one_or_none()
-
-            raw_qty = 0
-            if inventory:
-                raw_qty = inventory.available
-                qty_to_deduct = max(0, min(raw_qty, inventory.quantity))
-                
-                # Deduct constraints preventing negative inventory
-                inventory.quantity = inventory.quantity - qty_to_deduct
-                inventory.available = inventory.available - qty_to_deduct
-                if inventory.quantity <= 0:
-                    inventory.status = "DEPLETED"
-                remaining_inventory = inventory.quantity
-            else:
-                qty_to_deduct = 0
-                remaining_inventory = 0
-
-            loss_value = Decimal(str(qty_to_deduct * unit_cost))
+            from app.services.inventory_service import InventoryService
             
-            # Generate WRITE_OFF payload
-            trans = InventoryTransaction(
-                transaction_type="WRITE_OFF",
+            # Use centralized disposal logic
+            result = await InventoryService.dispose_stock(
+                db=db,
                 product_id=suggestion.product_id,
                 warehouse_id=suggestion.warehouse_id,
-                quantity=qty_to_deduct,
+                qty=999999,  # Dispose all available
                 reason="Dead Stock Disposal",
-                reference_action_id=suggestion.id,
-                loss_value=loss_value
+                reference_action_id=suggestion.id
             )
-
-            db.add(trans)
             
             suggestion.status = SuggestionStatus.EXECUTED
             suggestion.executed_at = datetime.now(timezone.utc)
             await db.flush()
-            logger.info("Executed suggestion %d", suggestion_id)
             
             return {
-                "status": "success",
+                **result,
                 "action_id": suggestion.id,
-                "executed_quantity": qty_to_deduct,
-                "remaining_inventory": remaining_inventory,
-                "write_off_value": float(loss_value),
-                "message": f"Disposed {qty_to_deduct} units. Write-off value: ${float(loss_value):,.2f}. Remaining: {remaining_inventory}."
             }
         elif suggestion.suggestion_type in (SuggestionType.DISCOUNT, SuggestionType.HEAVY_DISCOUNT):
             # ── DISCOUNT / HEAVY_DISCOUNT execution ──────────────────────

@@ -659,31 +659,70 @@ function WarehouseContent() {
       type: zone.zone_type || 'General',
       color: zone.color || '#e5e7eb',
       width: zone.width || 10,
-      depth: zone.depth || 8
+      depth: zone.depth || 8,
+      location_x: zone.location_x || 0,
+      location_y: zone.location_y || 0,
     });
   };
 
   const applyZoneEdit = async () => {
     if (!zoneEditor) return;
-    const { id, width, depth, name, type, color } = zoneEditor;
-    
+    const { id, width, depth, name, type, color, location_x, location_y } = zoneEditor;
+    const newW = parseFloat(width) || 1;
+    const newD = parseFloat(depth) || 1;
+    const newX = parseFloat(location_x) || 0;
+    const newY = parseFloat(location_y) || 0;
+
     // 1. Update local state for all fields
     setState(prev => ({
       ...prev,
-      zones: prev.zones.map(z => 
-        z.id === id ? { ...z, zone_name: name, zone_type: type, width: parseFloat(width) || z.width, depth: parseFloat(depth) || z.depth, color } : z
+      zones: prev.zones.map(z =>
+        z.id === id
+          ? { ...z, zone_name: name, zone_type: type, width: newW, depth: newD, color, location_x: newX, location_y: newY }
+          : z
       )
     }));
 
-    // 2. Persist to server
-    await updateZone(id, { 
-      zone_name: name, 
-      zone_type: type, 
-      width: parseFloat(width) || 1, 
-      depth: parseFloat(depth) || 1 
+    // 2. Persist to server (position + dimensions)
+    await updateZone(id, {
+      zone_name: name,
+      zone_type: type,
+      width: newW,
+      depth: newD,
+      location_x: newX,
+      location_y: newY,
     });
 
     setZoneEditor(null);
+  };
+
+  // Auto-adjust zone position + size to tightly wrap all its shelves
+  const adjustZoneToDimensions = () => {
+    if (!zoneEditor) return;
+    const zone = state.zones.find(z => z.id === zoneEditor.id);
+    if (!zone) return;
+
+    const zoneShelves = state.shelves.filter(s => s.zone_id === zoneEditor.id);
+    if (zoneShelves.length === 0) return;
+
+    // Bounding box of ALL shelves (absolute warehouse coords)
+    const PADDING = 0.2;
+    const minX = Math.min(...zoneShelves.map(s => parseFloat(s.location_x) || 0));
+    const minY = Math.min(...zoneShelves.map(s => parseFloat(s.location_y) || 0));
+    const maxX = Math.max(...zoneShelves.map(s => (parseFloat(s.location_x) || 0) + (parseFloat(s.width) || 0)));
+    const maxY = Math.max(...zoneShelves.map(s => (parseFloat(s.location_y) || 0) + (parseFloat(s.depth) || 0)));
+
+    // New zone origin = shelf min - padding, size = full span + 2×padding
+    const newX     = parseFloat((minX - PADDING).toFixed(2));
+    const newY     = parseFloat((minY - PADDING).toFixed(2));
+    const newWidth = parseFloat((maxX - minX + PADDING * 2).toFixed(2));
+    const newDepth = parseFloat((maxY - minY + PADDING * 2).toFixed(2));
+
+    // Immediately update canvas visually
+    updateZoneDimensions(zoneEditor.id, newWidth, newDepth, newX, newY);
+
+    // Update editor fields so Apply Changes also persists the new position
+    setZoneEditor(prev => ({ ...prev, width: newWidth, depth: newDepth, location_x: newX, location_y: newY }));
   };
 
   const rotateZoneElements = async (zoneId, angleDegrees) => {
@@ -1548,25 +1587,42 @@ function WarehouseContent() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Width (m)</label>
-                  <input 
-                    type="number" step="0.1" 
-                    value={zoneEditor.width}
-                    onChange={e => setZoneEditor({ ...zoneEditor, width: e.target.value })}
-                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border text-sm"
-                  />
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm font-medium text-gray-700">Dimensions (m)</label>
+                  <button
+                    type="button"
+                    onClick={adjustZoneToDimensions}
+                    title="Auto-fit zone to shelf bounding box"
+                    className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-md px-2 py-1 transition-colors"
+                  >
+                    <Maximize2 size={12} />
+                    Adjust
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Depth (m)</label>
-                  <input 
-                    type="number" step="0.1" 
-                    value={zoneEditor.depth}
-                    onChange={e => setZoneEditor({ ...zoneEditor, depth: e.target.value })}
-                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border text-sm"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Width</label>
+                    <input 
+                      type="number" step="0.1" 
+                      value={zoneEditor.width}
+                      onChange={e => setZoneEditor({ ...zoneEditor, width: e.target.value })}
+                      className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Depth</label>
+                    <input 
+                      type="number" step="0.1" 
+                      value={zoneEditor.depth}
+                      onChange={e => setZoneEditor({ ...zoneEditor, depth: e.target.value })}
+                      className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border text-sm"
+                    />
+                  </div>
                 </div>
+                <p className="text-[10px] text-gray-400 leading-tight">
+                  Click <span className="font-semibold text-indigo-500">Adjust</span> to auto-fit the zone boundary around all its shelves.
+                </p>
               </div>
 
               <div>

@@ -188,9 +188,25 @@ async def execute_batch_actions(
                 results.append({"product_id": prod.id, "action": "BUNDLE", "status": "Success"})
             
             elif action == "DISPOSAL":
-                # For disposal, normally we decrease inventory. Just logging for now.
+                from app.services.inventory_service import InventoryService
+                # Call centralized disposal for all available stock
+                disp_res = await InventoryService.dispose_stock(
+                    db=db,
+                    product_id=prod.id,
+                    warehouse_id=None, # across all warehouses
+                    qty=999999,
+                    reason="Bulk Strategy Disposal"
+                )
+                
+                rec.recommended_action = RecommendedAction.NONE
                 executed_count += 1
-                results.append({"product_id": prod.id, "action": "DISPOSAL", "status": "Success"})
+                results.append({
+                    "product_id": prod.id, 
+                    "action": "DISPOSAL", 
+                    "status": "Success",
+                    "executed_quantity": disp_res["executed_quantity"],
+                    "loss_value": disp_res["write_off_value"]
+                })
 
     return {
         "message": f"Successfully executed bulk strategy for {executed_count} items",

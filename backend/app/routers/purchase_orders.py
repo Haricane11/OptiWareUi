@@ -10,7 +10,7 @@ from app.models.purchase_orders import (
 router = APIRouter(prefix="/purchase-orders", tags=["purchase-orders"])
 
 @router.get("", response_model=list[PurchaseOrderListOut])
-def list_purchase_orders():
+async def list_purchase_orders():
     try:
         conn = get_conn()
         cur = conn.cursor()
@@ -35,16 +35,40 @@ def list_purchase_orders():
             """
         )
         rows = cur.fetchall()
+
+        # Check MongoDB to auto-sync "delivered" status for POs that have invoices
+        po_numbers_to_check = [r["po_number"] for r in rows if str(r["status"]).lower() not in ["delivered", "received"]]
+        delivered_pos = set()
+        
+        if po_numbers_to_check:
+            from app.mongodb import mongodb
+            
+            cursor = mongodb.purchase_invoices.find({"po_number": {"$in": po_numbers_to_check}}, {"po_number": 1})
+            invoiced_po_numbers = [doc["po_number"] async for doc in cursor]
+            delivered_pos = set(invoiced_po_numbers)
+
+            if delivered_pos:
+                # Update Postgres for those that now have an invoice
+                cur.execute(
+                    "UPDATE purchase_orders SET status = 'delivered' WHERE po_number = ANY(%s);",
+                    (list(delivered_pos),)
+                )
+                conn.commit()
+
         cur.close()
         conn.close()
+
         for r in rows:
             r["total_amount"] = float(r["total_amount"] or 0)
+            if r["po_number"] in delivered_pos:
+                r["status"] = "delivered"
+                
         return rows
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{po_id}", response_model=PurchaseOrderDetailOut)
-def get_purchase_order(po_id: int):
+async def get_purchase_order(po_id: int):
     try:
         conn = get_conn()
         cur = conn.cursor()
@@ -99,6 +123,19 @@ def get_purchase_order(po_id: int):
         )
         items = cur.fetchall()
 
+        # Check MongoDB to auto-sync "delivered" status
+        if str(header.get("status", "")).lower() not in ["delivered", "received"]:
+            from app.mongodb import mongodb
+            has_invoice = await mongodb.purchase_invoices.find_one({"po_number": header["po_number"]})
+                
+            if has_invoice:
+                cur.execute(
+                    "UPDATE purchase_orders SET status = 'delivered' WHERE id = %s;",
+                    (po_id,)
+                )
+                conn.commit()
+                header["status"] = "delivered"
+
         cur.close()
         conn.close()
 
@@ -109,14 +146,19 @@ def get_purchase_order(po_id: int):
             i["unit_price"] = float(i["unit_price"] or 0)
             i["line_total"] = float(i["line_total"] or 0)
 
-        return {**header, "items": items, "items_count": items_count, "total_amount": total_amount}
-    except HTTPException:
-        raise
+        header_dict = dict(header)
+        header_dict["items"] = items
+        header_dict["items_count"] = items_count
+        header_dict["total_amount"] = total_amount
+
+        return header_dict
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("", response_model=PurchaseOrderDetailOut)
-def create_purchase_order(payload: PurchaseOrderCreate):
+async def create_purchase_order(payload: PurchaseOrderCreate):
     """Create a new PO + items in a single transaction.
 
     - Inserts into purchase_orders (po_number temporary, then update using generated id)
@@ -183,7 +225,7 @@ def create_purchase_order(payload: PurchaseOrderCreate):
         conn.close()
 
         # reuse GET logic to return detail
-        return get_purchase_order(po_id)
+        return await get_purchase_order(po_id)
     except HTTPException:
         try:
             cur.execute("ROLLBACK;")
@@ -208,7 +250,7 @@ def create_purchase_order(payload: PurchaseOrderCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/{po_id}")
-def delete_purchase_order(po_id: int):
+async def delete_purchase_order(po_id: int):
     """Delete a purchase order and its items."""
     try:
         conn = get_conn()
@@ -234,7 +276,7 @@ def delete_purchase_order(po_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{po_id}", response_model=PurchaseOrderDetailOut)
-def update_purchase_order(po_id: int, payload: PurchaseOrderUpdate):
+async def update_purchase_order(po_id: int, payload: PurchaseOrderUpdate):
     """Update a purchase order and its items."""
     try:
         conn = get_conn()
@@ -302,7 +344,7 @@ def update_purchase_order(po_id: int, payload: PurchaseOrderUpdate):
         cur.close()
         conn.close()
 
-        return get_purchase_order(po_id)
+        return await get_purchase_order(po_id)
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))

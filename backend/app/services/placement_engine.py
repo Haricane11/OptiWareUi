@@ -81,7 +81,10 @@ def match_shelf_in_memory(
     """
     category = product.get("category")
     handling_type = product.get("handling_type")
-    turnover_rate = (product.get("turnover_rate") or "medium").lower()
+    
+    # turnover_rate could be string "High"/"Medium"/"Low" (legacy or frontend)
+    # or numeric 3/2/1 (from DB Decimal/float)
+    turnover_rate = product.get("turnover_rate") or "Medium"
 
     total_volume = float(measured_width) * float(measured_depth) * float(measured_height)
     total_weight = float(measured_weight)
@@ -170,13 +173,42 @@ def match_shelf_in_memory(
 
     # Step 3: Sort by priority rules
     def sort_key(s):
-        aisle_val = -s["_aisle"] if turnover_rate == "low" else s["_aisle"]
+        # turnover_rate is now numeric: 3=High, 2=Medium, 1=Low
+        # turnover_val might be float/Decimal from DB, cast to int
+        # or it could be a string "High", "Medium", "Low"
+        tr_map = {"high": 3, "medium": 2, "low": 1}
+        
+        try:
+            if isinstance(turnover_rate, str):
+                tr_int = tr_map.get(turnover_rate.lower(), 2)
+            else:
+                tr_int = int(float(turnover_rate))
+        except (ValueError, TypeError):
+            tr_int = 2 # Default to Medium
+            
+        if tr_int >= 3: # High
+            aisle_val = s["_aisle"]
+        elif tr_int <= 1: # Low
+            aisle_val = -s["_aisle"]
+        else: # Medium
+            aisle_val = s["_aisle"] # Sorting fallback, handled in Step 4 for median
+            
         return (s["_cat_prio"], s["_lvl_rank"], aisle_val, s["_bay"])
 
     candidates.sort(key=sort_key)
 
     # Step 4: Handle medium turnover median picks
-    if turnover_rate == "medium" and candidates:
+    # If turnover is 2 (Medium), we pick the median aisle
+    tr_map = {"high": 3, "medium": 2, "low": 1}
+    try:
+        if isinstance(turnover_rate, str):
+            tr_int = tr_map.get(turnover_rate.lower(), 2)
+        else:
+            tr_int = int(float(turnover_rate))
+    except (ValueError, TypeError):
+        tr_int = 2
+
+    if tr_int == 2 and candidates:
         try:
             # Narrow down to BEST category priority candidates
             best_cat_prio = candidates[0]["_cat_prio"]
@@ -198,27 +230,24 @@ def match_shelf_in_memory(
     # Step 5: Find best shelf that can fit ALL quantity, else the most units
     if candidates:
         try:
-            # First, try to find a shelf that can fit ALL units
+            # First, try to find a shelf that can fit ALL units.
+            # Candidates are already sorted by (aisle asc, bay asc), so take
+            # the first one that fits — this gives the smallest bay number.
             full_fillment_candidates = [c for c in candidates if c["_max_units"] >= quantity]
-            
+
             if full_fillment_candidates:
-                # Prefer consolidation (more remaining capacity) before best-fit waste
-                best_shelf = max(
-                    full_fillment_candidates,
-                    key=lambda s: (s["_max_units"], -((s["_vol"] - total_volume))),
-                )
+                best_shelf = full_fillment_candidates[0]
                 reasons["quantity_placed"] = quantity
                 logger.info(f"Found shelf {best_shelf.get('shelf_code')} that can fit all {quantity} units")
                 return best_shelf, reasons, quantity
-            
-            # If no shelf can fit ALL, find the one that can fit the MOST units
-            # with best priority ranking
+
+            # If no shelf can fit ALL, find the one that can hold the MOST units.
+            # Among shelves with the same max capacity, prefer the smallest bay.
             max_units = max(c["_max_units"] for c in candidates)
             if max_units > 0:
-                best_shelf = max(
-                    candidates,
-                    key=lambda s: (s["_max_units"], -((s["_vol"] - total_volume))),
-                )
+                best_candidates = [c for c in candidates if c["_max_units"] == max_units]
+                # candidates are already sorted so best_candidates[0] is the smallest bay
+                best_shelf = best_candidates[0]
                 placed = int(min(max_units, quantity))
                 reasons["partial_fulfillment"] = placed < quantity
                 reasons["quantity_placed"] = placed
@@ -226,6 +255,7 @@ def match_shelf_in_memory(
                 return best_shelf, reasons, placed
         except (ValueError, KeyError) as e:
             logger.error(f"Error finding best shelf: {e}")
+
 
     return None, reasons, 0
 

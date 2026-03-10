@@ -7,11 +7,18 @@ from app.core.database import get_db
 from app.schemas import (
     AllocateStockRequest, ReleaseAllocationRequest,
     DeductStockRequest, StockResponse, BatchResponse,
+    InventoryListItem,
 )
 from app.services.inventory_service import InventoryService
 from app.services.reorder_service import ReorderService
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
+
+
+@router.get("", response_model=list[InventoryListItem])
+async def list_inventory_all(db: AsyncSession = Depends(get_db)):
+    """List all inventory items with product and shelf details."""
+    return await InventoryService.get_all_inventory(db)
 
 
 @router.post("/allocate")

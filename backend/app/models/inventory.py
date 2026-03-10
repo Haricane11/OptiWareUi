@@ -2,7 +2,7 @@
 
 from sqlalchemy import (
     Column, Integer, String, Date, DateTime, Numeric, ForeignKey,
-    CheckConstraint, Index,
+    CheckConstraint, Index, Computed, UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -17,6 +17,7 @@ class Inventory(Base):
         CheckConstraint("allocated >= 0", name="ck_inv_alloc_nonneg"),
         CheckConstraint("available >= 0", name="ck_inv_avail_nonneg"),
         CheckConstraint("quantity >= allocated", name="ck_inv_qty_ge_alloc"),
+        UniqueConstraint("product_id", "shelf_id", "batch_number", name="uq_inventory_product_shelf_batch"),
         Index("ix_inv_product_wh_status", "product_id", "warehouse_id", "status"),
         Index("ix_inv_expiry", "expiry_date"),
         Index("ix_inv_shelf", "shelf_id"),
@@ -29,7 +30,7 @@ class Inventory(Base):
     batch_number = Column(String(50))
     quantity = Column(Integer, nullable=False, default=0)      # total_quantity
     allocated = Column(Integer, nullable=False, default=0)     # allocated_quantity
-    available = Column(Integer, nullable=False, default=0)     # available = quantity - allocated
+    available = Column(Integer, Computed("quantity - allocated", persisted=True)) # available = quantity - allocated
     total_volume = Column(Numeric(10, 3))
     total_weight = Column(Numeric(10, 2))
     expiry_date = Column(Date)

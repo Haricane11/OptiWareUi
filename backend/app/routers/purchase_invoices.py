@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, HTTPException
 from bson import ObjectId
 from pydantic import BaseModel
-from app.mongodb import mongodb
+from app.mongodb import mongodb, get_conn
 from app.routers.notifications import NotificationCreate, create_notification
 
 router = APIRouter(
@@ -157,10 +157,26 @@ async def generate_invoice_from_po(po_id: int):
         )
         await create_notification(notification_data)
 
+        # 5. Update PO status to 'received' in PostgreSQL
+        try:
+            pg_conn = get_conn()
+            pg_cur = pg_conn.cursor()
+            pg_cur.execute(
+                "UPDATE purchase_orders SET status = 'received' WHERE id = %s;",
+                (po_id,)
+            )
+            pg_conn.commit()
+            pg_cur.close()
+            pg_conn.close()
+        except Exception as pg_err:
+            print(f"Warning: Failed to update PO status for PO {po_id}: {pg_err}")
+            # Non-fatal: invoice was already saved, just log the warning
+
         return invoice_doc
     except Exception as e:
         print(f"Error saving to MongoDB: {e}")
         raise HTTPException(status_code=500, detail=f"Error saving invoice: {str(e)}")
+
 
 
 @router.delete("/{invoice_id}")

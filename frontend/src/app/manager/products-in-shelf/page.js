@@ -45,7 +45,7 @@ function StatusBadge({ value }) {
 }
 
 function TurnoverBadge({ value }) {
-  const v = (value || "").toLowerCase();
+  const v = (String(value || "")).toLowerCase();
   return (
     <span className={cn("px-2 py-0.5 rounded-full text-xs font-medium capitalize", TURNOVER_COLOURS[v] || "bg-gray-100 text-gray-600")}>
       {v || "—"}

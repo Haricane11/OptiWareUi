@@ -14,5 +14,7 @@ class User(Base):
     password = Column(String(255), nullable=False)
     role = Column(String(30), nullable=False)
     warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=True)
+    zone_id = Column(Integer, ForeignKey("zones.id"), nullable=True)
+    team = Column(String(50), nullable=True)
     status = Column(String(20), default="ACTIVE")
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -1,0 +1,15 @@
+public.inventory -> id
+public.inventory -> product_id
+public.inventory -> shelf_id
+public.inventory -> warehouse_id
+public.inventory -> batch_number
+public.inventory -> quantity
+public.inventory -> allocated
+public.inventory -> total_volume
+public.inventory -> total_weight
+public.inventory -> expiry_date
+public.inventory -> received_date
+public.inventory -> status
+public.inventory -> created_at
+public.inventory -> available
+public.inventory -> is_sealed

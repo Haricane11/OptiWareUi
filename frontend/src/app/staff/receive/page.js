@@ -40,8 +40,8 @@ const WS_HOST =
     ? `${window.location.hostname}:8000`
     : "localhost:8000";
 
-// const SCANNER_URL_BASE = "http://10.247.174.242:3000/scan";
-const SCANNER_URL_BASE = "http://192.168.99.169:3000/scan";
+const SCANNER_URL_BASE = "http://10.218.109.242:3000/scan";
+// const SCANNER_URL_BASE = "http://192.168.99.169:3000/scan";
 
 // const SCANNER_URL_BASE = "http://192.168.4.19:3000/scan";
 

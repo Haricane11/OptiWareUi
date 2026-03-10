@@ -76,6 +76,7 @@ export default function ManagerLayout({ children }) {
     {
       label: "Inventory",
       items: [
+        { title: "Inventory", url: "/manager/inventory", icon: Layers },
         { title: "Stock Monitor", url: "/manager/stock-monitor", icon: AlertTriangle },
         { title: "Financial Loss", url: "/manager/financial-loss", icon: DollarSign },
         { title: "Write-Off History", url: "/manager/write-off-history", icon: ClipboardList },

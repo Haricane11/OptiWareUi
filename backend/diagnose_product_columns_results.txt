@@ -1,0 +1,38 @@
+﻿Testing Column: id (INTEGER)
+  id SUCCESS
+Testing Column: sku (VARCHAR(50))
+  sku SUCCESS
+Testing Column: name (VARCHAR(100))
+  name SUCCESS
+Testing Column: category (VARCHAR(100))
+  category SUCCESS
+Testing Column: supplier_id (INTEGER)
+  supplier_id SUCCESS
+Testing Column: supplier_sku (VARCHAR(50))
+  supplier_sku SUCCESS
+Testing Column: upc_code (VARCHAR(50))
+  upc_code SUCCESS
+Testing Column: width (NUMERIC(10, 2))
+  width SUCCESS
+Testing Column: depth (NUMERIC(10, 2))
+  depth SUCCESS
+Testing Column: height (NUMERIC(10, 2))
+  height SUCCESS
+Testing Column: volume (NUMERIC(10, 2))
+  volume SUCCESS
+Testing Column: weight (NUMERIC(10, 2))
+  weight SUCCESS
+Testing Column: handling_type (VARCHAR(30))
+  handling_type SUCCESS
+Testing Column: storage_temperature (VARCHAR(30))
+  storage_temperature SUCCESS
+Testing Column: unit_price (NUMERIC(10, 2))
+  unit_price SUCCESS
+Testing Column: cost (NUMERIC(10, 2))
+  cost SUCCESS
+Testing Column: turnover_rate (NUMERIC(10, 2))
+  turnover_rate SUCCESS
+Testing Column: status (VARCHAR(20))
+  status SUCCESS
+Testing Column: created_at (DATETIME)
+  created_at SUCCESS

@@ -55,18 +55,18 @@ class InventoryHealthAnalytics(Base):
     coefficient_of_variation = Column(Numeric(10, 4), nullable=False, default=0)
     
     classification = Column(
-        Enum(HealthClassification, name="health_classification_enum"),
+        Enum(HealthClassification, name="inventory_classification"),
         nullable=False,
         default=HealthClassification.HEALTHY,
     )
     recommended_action = Column(
-        Enum(RecommendedAction, name="recommended_action_enum"),
+        Enum(RecommendedAction, name="inventory_action"),
         nullable=False,
         default=RecommendedAction.NONE,
     )
     
     previous_classification = Column(
-        Enum(HealthClassification, name="health_classification_enum"),
+        Enum(HealthClassification, name="inventory_classification"),
         nullable=True,
     )
     consecutive_confirmation_count = Column(Integer, nullable=False, default=0)

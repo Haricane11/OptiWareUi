@@ -11,7 +11,11 @@ class UserOut(BaseModel):
     username: str
     role: str
     warehouse_id: Optional[int] = None
+    zone_id: Optional[int] = None
+    team: Optional[str] = None
     status: str
+    zone_name: Optional[str] = None
+    floor_number: Optional[int] = None
     created_at: Optional[datetime] = None
 
 class UserCreate(BaseModel):
@@ -19,6 +23,8 @@ class UserCreate(BaseModel):
     password: str
     role: str = "staff"
     warehouse_id: Optional[int] = None
+    zone_id: Optional[int] = None
+    team: Optional[str] = None
     status: str = "active"
 
 class UserUpdate(BaseModel):
@@ -26,6 +32,8 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
     role: Optional[str] = None
     warehouse_id: Optional[int] = None
+    zone_id: Optional[int] = None
+    team: Optional[str] = None
     status: Optional[str] = None
 
 @router.get("", response_model=List[UserOut])
@@ -34,10 +42,13 @@ def list_users():
         conn = get_conn()
         cur = conn.cursor()
         cur.execute("""
-            SELECT id, username, role, warehouse_id, status, created_at
-            FROM users
-            WHERE role = 'staff'
-            ORDER BY created_at DESC
+            SELECT u.id, u.username, u.role, u.warehouse_id, u.zone_id, u.team, u.status, u.created_at,
+                   z.zone_name, f.floor_number
+            FROM users u
+            LEFT JOIN zones z ON u.zone_id = z.id
+            LEFT JOIN floors f ON z.floor_id = f.id
+            WHERE u.role = 'staff'
+            ORDER BY u.created_at DESC
         """)
         rows = cur.fetchall()
         cur.close()
@@ -54,11 +65,11 @@ def create_user(payload: UserCreate):
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT INTO users (username, password, role, warehouse_id, status)
-            VALUES (%s, %s, %s, %s, %s)
-            RETURNING id, username, role, warehouse_id, status, created_at;
+            INSERT INTO users (username, password, role, warehouse_id, zone_id, team, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id, username, role, warehouse_id, zone_id, team, status, created_at;
             """,
-            (payload.username, payload.password, payload.role, payload.warehouse_id, payload.status)
+            (payload.username, payload.password, payload.role, payload.warehouse_id, payload.zone_id, payload.team, payload.status)
         )
         new_user = cur.fetchone()
         conn.commit()
@@ -94,13 +105,19 @@ def update_user(user_id: int, payload: UserUpdate):
         if payload.status is not None:
             update_fields.append("status = %s")
             params.append(payload.status)
+        if payload.zone_id is not None:
+            update_fields.append("zone_id = %s")
+            params.append(payload.zone_id)
+        if payload.team is not None:
+            update_fields.append("team = %s")
+            params.append(payload.team)
             
         if not update_fields:
             raise HTTPException(status_code=400, detail="No fields to update")
             
         params.append(user_id)
         cur.execute(
-            f"UPDATE users SET {', '.join(update_fields)} WHERE id = %s RETURNING id, username, role, warehouse_id, status, created_at;",
+            f"UPDATE users SET {', '.join(update_fields)} WHERE id = %s RETURNING id, username, role, warehouse_id, zone_id, team, status, created_at;",
             tuple(params)
         )
         updated_user = cur.fetchone()

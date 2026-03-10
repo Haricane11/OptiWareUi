@@ -189,9 +189,13 @@ export default function StaffManagement() {
   };
 
   const teamOptions = ["Inbound", "Outbound", "Inventory", "Maintenance", "Management"];
+  // Dynamically get unique teams from staff that aren't in teamOptions
+  const dynamicTeams = Array.from(new Set(staff.map(s => s.team).filter(t => t && !teamOptions.includes(t))));
+  
   const teams = [
     "All", 
     ...teamOptions,
+    ...dynamicTeams,
     ...(staff.some(s => !s.team) ? ["No Team"] : [])
   ];
 
@@ -245,7 +249,7 @@ export default function StaffManagement() {
                 key={team}
                 onClick={() => setSelectedTeam(team)}
                 className={cn(
-                  "px-8 py-3 rounded-xl text-sm font-bold transition-all duration-300 border-2",
+                  "px-8 py-3 rounded-xl text-sm font-bold transition-all duration-300 border-2 whitespace-nowrap",
                   selectedTeam === team 
                     ? "gradient-primary text-white border-transparent shadow-xl scale-105 z-10" 
                     : "bg-card text-muted-foreground border-border hover:border-primary/50 hover:bg-muted"
@@ -256,9 +260,6 @@ export default function StaffManagement() {
             ))}
           </div>
         </div>
-        <p className="text-xs text-muted-foreground ml-2">
-          Tip: Create a staff account with a team name to see more buttons here.
-        </p>
       </div>
 
       {error && (

@@ -220,9 +220,10 @@ export default function SalesOrders() {
       toast({ title: "Success", description: "Delivery note generated" });
       loadData();
       // Optionally refresh selected order to show new status
-      const updatedOrders = await getSalesOrders();
-      setOrders(updatedOrders);
-      const updatedSelected = updatedOrders.find(o => o.id === orderId);
+      const updatedOrdersRes = await getSalesOrders();
+      const updatedOrdersData = updatedOrdersRes.data || [];
+      setOrders(updatedOrdersData);
+      const updatedSelected = updatedOrdersData.find(o => o.id === orderId);
       if (updatedSelected) setSelectedOrder(updatedSelected);
     } catch (error) {
       toast({ title: "Error", description: error.response?.data?.detail || "Failed to generate note", variant: "destructive" });

@@ -122,21 +122,117 @@ function Rack({ shelf, highlight, suggestedItem }) {
     }
   }
 
-  const pendingBox = suggestedItem 
-    && suggestedItem.measured_width > 0 
-    && suggestedItem.measured_depth > 0 
-    && suggestedItem.measured_height > 0
-    ? {
-        bw: suggestedItem.measured_width,
-        bd: suggestedItem.measured_depth,
-        bh: suggestedItem.measured_height,
-        status: suggestedItem.status
-      }
-    : null;
+  // --- Render logic for both pending suggestions AND existing inventory ---
+  const renderBoxes = () => {
+    const allBoxes = [];
+    
+    // 1. Existing Inventory
+    if (Array.isArray(shelf.inventory) && shelf.inventory.length > 0) {
+      shelf.inventory.forEach((inv, invIdx) => {
+        // We might have multiple units in one inventory record, but for 3D visualization 
+        // we'll represent it as a cluster or a single representative box if it's too many.
+        // For now, let's treat the inventory record as a set of boxes based on quantity.
+        const qty = Math.min(inv.quantity, 100); // Caps at 100 for performance
+        for (let i = 0; i < qty; i++) {
+          allBoxes.push({
+            bw: parseFloat(inv.product_width || 0.4),
+            bd: parseFloat(inv.product_depth || 0.4),
+            bh: parseFloat(inv.product_height || 0.4),
+            status: 'inventory',
+            id: `inv-${inv.id}-${i}`
+          });
+        }
+      });
+    }
 
-  const boxes = Array.isArray(suggestedItem?.boxes) && suggestedItem.boxes.length > 0
-    ? suggestedItem.boxes.filter(b => b.bw > 0 && b.bd > 0 && b.bh > 0)
-    : (pendingBox ? [pendingBox] : []);
+    // 2. Pending Suggestions
+    const pendingBox = suggestedItem 
+      && suggestedItem.measured_width > 0 
+      && suggestedItem.measured_depth > 0 
+      && suggestedItem.measured_height > 0
+      ? {
+          bw: suggestedItem.measured_width,
+          bd: suggestedItem.measured_depth,
+          bh: suggestedItem.measured_height,
+          status: suggestedItem.status
+        }
+      : null;
+
+    const suggestions = Array.isArray(suggestedItem?.boxes) && suggestedItem.boxes.length > 0
+      ? suggestedItem.boxes.filter(b => b.bw > 0 && b.bd > 0 && b.bh > 0)
+      : (pendingBox ? [pendingBox] : []);
+    
+    suggestions.forEach((s, sIdx) => {
+      allBoxes.push({ ...s, id: `sug-${sIdx}` });
+    });
+
+    if (allBoxes.length === 0) return null;
+
+    // Layout allBoxes
+    const elements = [];
+    const gap = 0.02;
+    const availW = w * 0.9;
+    const availD = d * 0.9;
+    const baseY = -h / 2 + gap;
+    let placed = 0;
+
+    // Use the first box dims for grid calculation (assuming uniform or similar)
+    const ref = allBoxes[0];
+    const bw = ref.bw;
+    const bd = ref.bd;
+    const bh = ref.bh;
+    const totalCount = allBoxes.length;
+
+    let cols = Math.max(1, Math.floor(availW / (bw + gap)));
+    let layers = Math.max(1, Math.floor(availD / (bd + gap)));
+    cols = Math.max(1, Math.min(cols, totalCount));
+    layers = Math.max(1, Math.min(layers, totalCount));
+    const capacityPerLayer = cols * layers;
+    const rowsNeeded = Math.ceil(totalCount / Math.max(1, capacityPerLayer));
+
+    // Dynamic scaling if it doesn't fit
+    const sx = Math.min(1, (availW / Math.max(1, cols)) / (bw + gap));
+    const sz = Math.min(1, (availD / Math.max(1, layers)) / (bd + gap));
+    const sy = Math.min(1, ((h - gap * 2) / Math.max(1, rowsNeeded)) / (bh + gap));
+    
+    const dbw = bw * sx;
+    const dbd = bd * sz;
+    const dbh = bh * sy;
+    const cellW = dbw + gap;
+    const cellD = dbd + gap;
+    const cellH = dbh + gap;
+
+    for (let ry = 0; ry < rowsNeeded && placed < totalCount; ry++) {
+      for (let lz = 0; lz < layers && placed < totalCount; lz++) {
+        for (let cx = 0; cx < cols && placed < totalCount; cx++) {
+          const b = allBoxes[placed];
+          const xPos = -availW / 2 + dbw / 2 + cx * cellW;
+          const yPos = baseY + dbh / 2 + ry * cellH;
+          const zPos = -availD / 2 + dbd / 2 + lz * cellD;
+          
+          let boxColor = "#facc15"; // Pending yellow
+          if (b.status === 'placed' || b.status === 'inventory') {
+            boxColor = "#10b981"; // Inventory/Placed green
+          }
+
+          elements.push(
+            <group key={b.id || `box-${placed}`} position={[xPos, yPos, zPos]}>
+              <mesh>
+                <boxGeometry args={[dbw, dbh, dbd]} />
+                <meshStandardMaterial 
+                  color={boxColor} 
+                  opacity={0.75} 
+                  transparent 
+                />
+              </mesh>
+            </group>
+          );
+          placed++;
+        }
+      }
+    }
+    return elements;
+  };
 
   return (
     <group position={pos} rotation={[0, rotationY, 0]}>
@@ -149,64 +245,10 @@ function Rack({ shelf, highlight, suggestedItem }) {
         isBottom={shelf.level_num === 1}
       />
 
-      {/* Pending placements: render boxes arranged in a 3D grid within shelf bounds */}
-      {boxes && boxes.length > 0 && (
-        <group>
-          {(() => {
-            const elements = [];
-            const gap = 0.02;
-            const availW = w * 0.9;
-            const availD = d * 0.9;
-            const baseY = -h / 2 + gap;
-            let placed = 0;
-            if (boxes.length > 0) {
-              const bw = boxes[0].bw;
-              const bd = boxes[0].bd;
-              const bh = boxes[0].bh;
-              const count = boxes.length;
-              let cols = Math.max(1, Math.floor(availW / (bw + gap)));
-              let layers = Math.max(1, Math.floor(availD / (bd + gap)));
-              cols = Math.max(1, Math.min(cols, count));
-              layers = Math.max(1, Math.min(layers, count));
-              const capacityPerLayer = cols * layers;
-              const rowsNeeded = Math.ceil(count / Math.max(1, capacityPerLayer));
-              const sx = Math.min(1, (availW / Math.max(1, cols)) / (bw + gap));
-              const sz = Math.min(1, (availD / Math.max(1, layers)) / (bd + gap));
-              const sy = Math.min(1, ((h - gap * 2) / Math.max(1, rowsNeeded)) / (bh + gap));
-              const dbw = bw * sx;
-              const dbd = bd * sz;
-              const dbh = bh * sy;
-              const cellW = dbw + gap;
-              const cellD = dbd + gap;
-              const cellH = dbh + gap;
-              for (let ry = 0; ry < rowsNeeded && placed < count; ry++) {
-                for (let lz = 0; lz < layers && placed < count; lz++) {
-                  for (let cx = 0; cx < cols && placed < count; cx++) {
-                    const b = boxes[placed];
-                    const xPos = -availW / 2 + dbw / 2 + cx * cellW;
-                    const yPos = baseY + dbh / 2 + ry * cellH;
-                    const zPos = -availD / 2 + dbd / 2 + lz * cellD;
-                    elements.push(
-                      <group key={`box-${placed}`} position={[xPos, yPos, zPos]}>
-                        <mesh>
-                          <boxGeometry args={[dbw, dbh, dbd]} />
-                          <meshStandardMaterial 
-                            color={b.status === 'placed' ? "#10b981" : "#facc15"} 
-                            opacity={0.75} 
-                            transparent 
-                          />
-                        </mesh>
-                      </group>
-                    );
-                    placed++;
-                  }
-                }
-              }
-            }
-            return elements;
-          })()}
-        </group>
-      )}
+      {/* Render all content boxes */}
+      <group>
+        {renderBoxes()}
+      </group>
       {/* Labels on the front surface */}
       <group position={[0, 0, d / 2 + 0.02]}>
         {/* Shelf Code (Main Label) */}

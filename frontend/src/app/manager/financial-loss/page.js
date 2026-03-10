@@ -412,43 +412,9 @@ export default function InventoryRiskDashboard() {
               return;
           }
       }
-      if (item.recommended_action === "DISPOSAL") {
-          setExecutingItem(item);
-          setExecutingState({ loading: false, success: false });
-      } else {
-          toast({
-              title: "Executing Action...",
-              description: `Applying ${item.recommended_action} to ${item.name}.`,
-              variant: "default",
-          });
-          
-          try {
-              const res = await fetch(`${API}/analytics/inventory-actions/${item.action_id}/execute`, {
-                  method: "POST",
-              });
-              const data = await res.json();
-              if (res.ok) {
-                  toast({
-                      title: "Action Executed",
-                      description: data.message || `Successfully executed action for ${item.name}.`,
-                      variant: "default",
-                  });
-                  fetchAll();
-              } else {
-                  toast({
-                      title: "Execution Failed",
-                      description: data.detail || "Something went wrong.",
-                      variant: "destructive",
-                  });
-              }
-          } catch (error) {
-              toast({
-                  title: "Execution Error",
-                  description: error.message || "Failed to execute.",
-                  variant: "destructive",
-              });
-          }
-      }
+      // Show confirmation modal for ALL action types
+      setExecutingItem(item);
+      setExecutingState({ loading: false, success: false });
   };
 
   const confirmExecution = async () => {
@@ -1061,7 +1027,12 @@ export default function InventoryRiskDashboard() {
                     <button 
                       onClick={confirmExecution} 
                       disabled={executingState.loading}
-                      className="flex items-center justify-center min-w-[100px] gap-2 px-4 py-2 rounded-lg text-sm font-bold bg-destructive text-white hover:bg-destructive/90 transition-colors disabled:opacity-70"
+                      className={cn(
+                        "flex items-center justify-center min-w-[100px] gap-2 px-4 py-2 rounded-lg text-sm font-bold text-white transition-colors disabled:opacity-70",
+                        executingItem.recommended_action === "DISPOSAL" 
+                          ? "bg-destructive hover:bg-destructive/90" 
+                          : "bg-primary hover:bg-primary/90"
+                      )}
                     >
                       {executingState.loading ? <Loader2 size={16} className="animate-spin" /> : "Confirm & Execute"}
                     </button>

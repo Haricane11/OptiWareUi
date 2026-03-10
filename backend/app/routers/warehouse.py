@@ -47,7 +47,7 @@ async def create_zone(payload: ZoneCreate, db: AsyncSession = Depends(get_db)):
         z = Zone(**payload.model_dump())
         db.add(z)
         await db.flush()
-    return {"id": z.id, "zone_code": z.zone_code}
+    return {"id": z.id, "zone_name": z.zone_name}
 
 
 # ── Shelves ───────────────────────────────────────────────────────────

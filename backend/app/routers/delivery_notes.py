@@ -638,6 +638,10 @@ def delete_delivery_note(note_id: int):
         cur.close()
         conn.close()
         return {"status": "success", "message": "Delivery note deleted and inventory reverted successfully"}
+    except HTTPException:
+        if 'conn' in locals():
+            conn.rollback()
+        raise
     except Exception as e:
         if 'conn' in locals():
             conn.rollback()

@@ -1,0 +1,67 @@
+Traceback (most recent call last):
+  File "D:\OptiWareLatest\OptiWareUi\backend\diagnose_health_v3.py", line 16, in main
+    report = await InventoryHealthService.get_health_report(db)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\OptiWareLatest\OptiWareUi\backend\app\services\inventory_health_service.py", line 289, in get_health_report
+    result_analytics = await db.execute(stmt_analytics)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 449, in execute
+    result = await greenlet_spawn(
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 203, in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\orm\session.py", line 2351, in execute
+    return self._execute_internal(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\orm\session.py", line 2249, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\orm\context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+             ^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\base.py", line 1419, in execute
+    return meth(
+           ^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\sql\elements.py", line 527, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\base.py", line 1641, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\base.py", line 2366, in _handle_dbapi_exception
+    raise exc_info[1].with_traceback(exc_info[2])
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\base.py", line 1983, in _exec_single_context
+    result = context._setup_result_proxy()
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\default.py", line 1875, in _setup_result_proxy
+    result = _cursor.CursorResult(self, strategy, cursor_description)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\cursor.py", line 1549, in __init__
+    metadata = self._init_metadata(context, cursor_description)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\cursor.py", line 1604, in _init_metadata
+    metadata = CursorResultMetaData(self, cursor_description)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\cursor.py", line 387, in __init__
+    raw = self._merge_cursor_description(
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\cursor.py", line 596, in _merge_cursor_description
+    context.get_result_processor(
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\default.py", line 1809, in get_result_processor
+    return type_._cached_result_processor(self.dialect, coltype)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\sql\type_api.py", line 950, in _cached_result_processor
+    rp = d["impl"].result_processor(dialect, coltype)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\95988\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 335, in result_processor
+    raise exc.InvalidRequestError(
+sqlalchemy.exc.InvalidRequestError: Unknown PG numeric type: 1043
+Fetching health report...
+Exception Type: <class 'sqlalchemy.exc.InvalidRequestError'>
+Exception Message: Unknown PG numeric type: 1043

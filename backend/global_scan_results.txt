@@ -1,0 +1,66 @@
+﻿
+--- Scanning products ---
+  width                     | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  depth                     | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  height                    | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  volume                    | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  weight                    | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  unit_price                | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  cost                      | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  turnover_rate             | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+
+--- Scanning inventory_health_status ---
+  severity_score            | Model: NUMERIC(5, 2)   | DB: numeric    | OID: 1700
+
+--- Scanning inventory_health_analytics ---
+  turnover_ratio            | Model: NUMERIC(10, 4)  | DB: numeric    | OID: 1700
+  dead_stock_severity_score | Model: NUMERIC(10, 4)  | DB: numeric    | OID: 1700
+  previous_severity_score   | Model: NUMERIC(10, 4)  | DB: numeric    | OID: 1700
+  velocity_score            | Model: NUMERIC(10, 4)  | DB: numeric    | OID: 1700
+  normalized_velocity       | Model: NUMERIC(10, 4)  | DB: numeric    | OID: 1700
+  overstock_ratio           | Model: NUMERIC(10, 4)  | DB: numeric    | OID: 1700
+  coefficient_of_variation  | Model: NUMERIC(10, 4)  | DB: numeric    | OID: 1700
+
+--- Scanning reorder_policy ---
+  ordering_cost             | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  holding_cost              | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  service_level             | Model: NUMERIC(5, 2)   | DB: numeric    | OID: 1700
+  average_daily_demand      | Model: NUMERIC(12, 4)  | DB: numeric    | OID: 1700
+  demand_std_dev            | Model: NUMERIC(12, 4)  | DB: numeric    | OID: 1700
+
+--- Scanning inventory ---
+  total_volume              | Model: NUMERIC(10, 3)  | DB: numeric    | OID: 1700
+  total_weight              | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+
+--- Scanning warehouses ---
+  width                     | Model: NUMERIC         | DB: numeric    | OID: 1700
+  height                    | Model: NUMERIC         | DB: numeric    | OID: 1700
+  depth                     | Model: NUMERIC         | DB: numeric    | OID: 1700
+
+--- Scanning floors ---
+
+--- Scanning areas ---
+  width                     | Model: NUMERIC         | DB: numeric    | OID: 1700
+  height                    | Model: NUMERIC         | DB: numeric    | OID: 1700
+  depth                     | Model: NUMERIC         | DB: numeric    | OID: 1700
+  location_x                | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  location_y                | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+
+--- Scanning zones ---
+  width                     | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  depth                     | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  location_x                | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  location_y                | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+
+--- Scanning shelves ---
+  width                     | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  depth                     | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  height                    | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  volume                    | Model: NUMERIC(10, 3)  | DB: numeric    | OID: 1700
+  location_x                | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  location_y                | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  location_z                | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  max_weight                | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  current_weight            | Model: NUMERIC(10, 2)  | DB: numeric    | OID: 1700
+  used_volume               | Model: NUMERIC(10, 3)  | DB: numeric    | OID: 1700
+  available_volume          | Model: NUMERIC(10, 3)  | DB: numeric    | OID: 1700
